@@ -67,6 +67,11 @@ class FileContentRequest(BaseModel):
     file_path: str
     repo_id: str = None
 
+class CommitFileDiffRequest(BaseModel):
+    file_path: str
+    repo_id: str = None
+    commit_sha: str = None
+
 class FeedbackRequest(BaseModel):
     file_name: str
     file_data: dict
@@ -535,6 +540,77 @@ def detect_tech_stack(file_path, content):
             tech_stack.append(framework)
     
     return list(set(tech_stack))  # 중복 제거
+
+@app.post("/get_commit_file_diff")
+async def get_commit_file_diff(request: CommitFileDiffRequest):
+    """커밋에서 파일의 변경 전/후 내용 가져오기"""
+    try:
+        print(f"📁 커밋 파일 diff 요청: {request.file_path}, repo_id: {request.repo_id}, commit: {request.commit_sha}")
+        
+        if not request.repo_id or not request.commit_sha:
+            return {"error": "repo_id와 commit_sha가 필요합니다."}
+        
+        # 레포지터리 디렉토리 경로
+        repo_name = request.repo_id.replace('/', '_')
+        repo_dir = os.path.join(LOCAL_REPOS_DIR, repo_name)
+        
+        if not os.path.exists(repo_dir):
+            return {"error": "레포지터리를 찾을 수 없습니다."}
+        
+        # Git 레포지터리 객체 생성
+        repo = git.Repo(repo_dir)
+        
+        try:
+            commit = repo.commit(request.commit_sha)
+        except Exception as e:
+            return {"error": f"커밋을 찾을 수 없습니다: {str(e)}"}
+        
+        # 파일 경로 정규화
+        file_path = request.file_path.replace('\\', '/')
+        
+        before_content = ""
+        after_content = ""
+        
+        try:
+            # 변경 후 내용 (현재 커밋)
+            try:
+                after_blob = commit.tree[file_path]
+                after_content = after_blob.data_stream.read().decode('utf-8', errors='ignore')
+            except KeyError:
+                # 파일이 삭제된 경우
+                after_content = "[파일이 삭제되었습니다]"
+            
+            # 변경 전 내용 (부모 커밋)
+            if commit.parents:
+                parent_commit = commit.parents[0]
+                try:
+                    before_blob = parent_commit.tree[file_path]
+                    before_content = before_blob.data_stream.read().decode('utf-8', errors='ignore')
+                except KeyError:
+                    # 새로 생성된 파일인 경우
+                    before_content = "[새로 생성된 파일입니다]"
+            else:
+                # 첫 번째 커밋인 경우
+                before_content = "[첫 번째 커밋입니다]"
+            
+            # HTML 이스케이프 처리
+            import html
+            before_content = html.escape(before_content)
+            after_content = html.escape(after_content)
+            
+            return {
+                "before_content": before_content,
+                "after_content": after_content,
+                "file_path": file_path,
+                "commit_sha": request.commit_sha
+            }
+            
+        except Exception as e:
+            return {"error": f"파일 diff 처리 실패: {str(e)}"}
+        
+    except Exception as e:
+        print(f"❌ 커밋 파일 diff 오류: {str(e)}")
+        return {"error": f"커밋 파일 diff 실패: {str(e)}"}
 
 @app.post("/get_file_content")
 async def get_file_content(request: FileContentRequest):

@@ -640,6 +640,149 @@
             border-radius: 50%;
             margin-right: 5px;
         }
+
+        /* 커밋 diff 모달 스타일 */
+        .commit-diff-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            display: none;
+        }
+
+        .commit-diff-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 95%;
+            height: 95%;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+
+        .commit-diff-header {
+            background: #f8f9fa;
+            padding: 20px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        
+        .commit-diff-header h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+
+        .commit-diff-body {
+            height: calc(100% - 120px);
+            overflow: auto;
+            padding: 0;
+            background: #f8f9fa;
+        }
+
+        .diff-container {
+            display: flex;
+            height: 100%;
+        }
+
+        .diff-side {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #ddd;
+        }
+
+        .diff-side:last-child {
+            border-right: none;
+        }
+
+        .diff-side-header {
+            background: #e9ecef;
+            padding: 12px 20px;
+            font-weight: 600;
+            color: #495057;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .diff-side-header.before {
+            background: #fff5f5;
+            color: #dc3545;
+        }
+
+        .diff-side-header.after {
+            background: #f0fff4;
+            color: #28a745;
+        }
+
+        .diff-code-display {
+            flex: 1;
+            background: #2d3748;
+            color: #e2e8f0;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            overflow: auto;
+            padding: 20px;
+            margin: 0;
+        }
+
+        .diff-line {
+            display: block;
+            padding: 2px 0;
+            margin: 0;
+        }
+
+        .diff-line.added {
+            background-color: rgba(40, 167, 69, 0.2);
+            border-left: 3px solid #28a745;
+            padding-left: 10px;
+        }
+
+        .diff-line.removed {
+            background-color: rgba(220, 53, 69, 0.2);
+            border-left: 3px solid #dc3545;
+            padding-left: 10px;
+        }
+
+        .diff-line.unchanged {
+            opacity: 0.7;
+        }
+
+        .diff-stats {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 20px;
+            margin-bottom: 0;
+        }
+
+        .diff-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+        }
+
+        .diff-stat-item {
+            text-align: center;
+        }
+
+        .diff-stat-value {
+            font-size: 18px;
+            font-weight: 600;
+            display: block;
+        }
+
+        .diff-stat-label {
+            font-size: 12px;
+            opacity: 0.9;
+        }
     </style>
 </head>
 <body>
@@ -1245,6 +1388,9 @@
         }
 
         function showCommitDetails(commit, branchName = '') {
+            // 전역 변수에 현재 커밋 정보 저장
+            window.currentCommitSha = commit.sha;
+            window.currentCommitInfo = commit;
             analyzeCommitChanges(commit, branchName);
         }
 
@@ -1384,7 +1530,7 @@
                                 <tbody>
                 `;
                 
-                data.files.forEach(file => {
+                data.files.forEach((file, index) => {
                     const fileName = (file.file_path || '').split('/').pop() || 'Unknown';
                     const getScoreClass = (score, max = 10) => {
                         const ratio = (score || 0) / max;
@@ -1394,7 +1540,7 @@
                     };
                     
                     html += `
-                        <tr>
+                        <tr style="cursor: pointer;" onclick="showCommitFileDiff('${file.file_path}', '${fileName}', ${JSON.stringify(file).replace(/"/g, '&quot;')})">
                             <td><strong>${fileName}</strong></td>
                             <td>${file.code_lines || 0}</td>
                             <td style="color: #28a745;">${file.code_lines_added || 0}</td>
@@ -1419,6 +1565,18 @@
             }
             
             content.innerHTML = html;
+            
+            // showCommitFileDiff 함수를 새 창에 추가
+            window.showCommitFileDiff = function(filePath, fileName, fileData) {
+                // 부모 창의 함수 사용
+                if (window.opener && window.opener.showCommitFileDiff) {
+                    window.opener.showCommitFileDiff(filePath, fileName, fileData);
+                }
+            };
+            
+            // 전역 변수 설정
+            window.activeRepo = window.opener ? window.opener.activeRepo : null;
+            window.currentCommitSha = window.opener ? window.opener.currentCommitSha : null;
         }
 
         function displayAnalysisResults(data) {
@@ -1757,12 +1915,141 @@
             }
         }
 
+        function closeCommitDiffModal() {
+            const modal = document.querySelector('.commit-diff-modal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
         // ESC 키로 모달 닫기
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
                 closeFileModal();
+                closeCommitDiffModal();
             }
         });
+        
+        // 커밋 파일 diff 모달 표시 함수 (새 창에서)
+        async function showCommitFileDiff(filePath, fileName, fileData) {
+            console.log('showCommitFileDiff 호출됨:', { filePath, fileName });
+            
+            // 새 창 열기
+            const diffWindow = window.open('', '_blank', 'width=1400,height=900,scrollbars=yes');
+            
+            diffWindow.document.write(`
+                <!DOCTYPE html>
+                <html lang="ko">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>파일 변경사항 - ${fileName}</title>
+                    <style>
+                        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background: rgba(0,0,0,0.8); }
+                        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+                        .modal-content { width: 95%; height: 95%; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.3); display: flex; flex-direction: column; }
+                        .modal-header { background: #f8f9fa; padding: 20px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: flex-start; }
+                        .modal-header h3 { margin: 0 0 10px 0; color: #333; }
+                        .diff-stats { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 20px; margin: 10px 0 0 0; border-radius: 8px; }
+                        .diff-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px; }
+                        .diff-stat-item { text-align: center; }
+                        .diff-stat-value { font-size: 18px; font-weight: 600; display: block; }
+                        .diff-stat-label { font-size: 12px; opacity: 0.9; }
+                        .close-modal { background: #dc3545; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; }
+                        .close-modal:hover { background: #c82333; }
+                        .modal-body { flex: 1; overflow: hidden; }
+                        .diff-container { display: flex; height: 100%; }
+                        .diff-side { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #ddd; }
+                        .diff-side:last-child { border-right: none; }
+                        .diff-side-header { background: #e9ecef; padding: 12px 20px; font-weight: 600; color: #495057; border-bottom: 1px solid #ddd; }
+                        .diff-side-header.before { background: #fff5f5; color: #dc3545; }
+                        .diff-side-header.after { background: #f0fff4; color: #28a745; }
+                        .diff-code-display { flex: 1; background: #2d3748; color: #e2e8f0; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow: auto; padding: 20px; margin: 0; }
+                        .loading { text-align: center; padding: 50px; color: #666; }
+                        .error { color: #dc3545; background: #fff5f5; padding: 15px; border-radius: 6px; margin: 20px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="modal-overlay">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <div>
+                                    <h3>📄 ${fileName} - 변경사항</h3>
+                                    <div class="diff-stats">
+                                        <div class="diff-stats-grid">
+                                            <div class="diff-stat-item">
+                                                <span class="diff-stat-value">${fileData.code_lines_added || 0}</span>
+                                                <span class="diff-stat-label">추가된 라인</span>
+                                            </div>
+                                            <div class="diff-stat-item">
+                                                <span class="diff-stat-value">${fileData.code_lines_deleted || 0}</span>
+                                                <span class="diff-stat-label">삭제된 라인</span>
+                                            </div>
+                                            <div class="diff-stat-item">
+                                                <span class="diff-stat-value">${fileData.difficulty_score || 0}/10</span>
+                                                <span class="diff-stat-label">난이도</span>
+                                            </div>
+                                            <div class="diff-stat-item">
+                                                <span class="diff-stat-value">${fileData.developer_level || 'N/A'}</span>
+                                                <span class="diff-stat-label">개발자 수준</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button class="close-modal" onclick="window.close()">✕ 닫기</button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="loading">파일 변경사항을 불러오는 중...</div>
+                            </div>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `);
+            
+            diffWindow.document.close();
+            
+            try {
+                // 파일 diff 내용 요청
+                const response = await fetch('/get_commit_file_diff', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        file_path: filePath,
+                        repo_id: activeRepo ? activeRepo.id : null,
+                        commit_sha: window.currentCommitSha || null
+                    })
+                });
+                
+                const data = await response.json();
+                const bodyDiv = diffWindow.document.querySelector('.modal-body');
+                
+                if (data.error) {
+                    bodyDiv.innerHTML = `<div class="error">파일 변경사항을 불러올 수 없습니다: ${data.error}</div>`;
+                } else {
+                    // 좌우 분할 diff 표시
+                    bodyDiv.innerHTML = `
+                        <div class="diff-container">
+                            <div class="diff-side">
+                                <div class="diff-side-header before">변경 전 (Before)</div>
+                                <div class="diff-code-display">${data.before_content || '파일이 새로 생성되었습니다.'}</div>
+                            </div>
+                            <div class="diff-side">
+                                <div class="diff-side-header after">변경 후 (After)</div>
+                                <div class="diff-code-display">${data.after_content || '파일이 삭제되었습니다.'}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+            } catch (error) {
+                console.error('파일 diff 로드 오류:', error);
+                const bodyDiv = diffWindow.document.querySelector('.modal-body');
+                bodyDiv.innerHTML = `<div class="error">파일 diff 로드 실패: ${error.message}</div>`;
+            }
+        }
         
         function updateDifficultyValue(value) {
             document.getElementById('difficultyValue').textContent = value + '/10';
