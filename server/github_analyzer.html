@@ -197,11 +197,7 @@
                 <h3>🌐 커밋 네트워크 그래프</h3>
                 <div class="network-graph" id="networkGraph"></div>
                 
-                <div class="commit-details" id="commitDetails">
-                    <h3>📝 커밋 상세 정보</h3>
-                    <div id="commitInfo"></div>
-                    <div class="code-diff" id="codeDiff"></div>
-                </div>
+
 
                 <button class="analyze-btn" onclick="analyzeRepository()">
                     📊 레포지터리 코드 분석 시작
@@ -290,43 +286,185 @@
         }
 
         async function showCommitDetails(commit) {
-            const detailsContainer = document.getElementById('commitDetails');
-            const commitInfo = document.getElementById('commitInfo');
-            const codeDiff = document.getElementById('codeDiff');
-
-            detailsContainer.style.display = 'block';
-
-            commitInfo.innerHTML = `
-                <p><strong>커밋:</strong> ${commit.sha.substring(0, 8)}</p>
-                <p><strong>메시지:</strong> ${commit.commit.message}</p>
-                <p><strong>작성자:</strong> ${commit.commit.author.name}</p>
-                <p><strong>날짜:</strong> ${new Date(commit.commit.author.date).toLocaleString()}</p>
-            `;
-
-            codeDiff.innerHTML = '<div class="loading">코드 변경사항을 로딩 중...</div>';
-
-            try {
-                const diffResponse = await fetch(`/api/github/repos/${activeRepo.id}/commits/${commit.sha}`);
-                const diffData = await diffResponse.json();
-
-                let diffHtml = '';
-                if (diffData.files && diffData.files.length > 0) {
-                    diffData.files.slice(0, 3).forEach(file => {
-                        diffHtml += `
-                            <div class="code-section">
-                                <h4>📄 ${file.filename}</h4>
-                                <pre>${file.patch || '변경사항 없음'}</pre>
+            // 새 창에서 커밋 분석 UI 표시
+            const analysisWindow = window.open('', '_blank', 'width=1400,height=900,scrollbars=yes');
+            
+            analysisWindow.document.write(`
+                <!DOCTYPE html>
+                <html lang="ko">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>커밋 분석 - ${commit.sha.substring(0, 8)}</title>
+                    <style>
+                        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
+                        .container { max-width: 1200px; margin: 0 auto; }
+                        .header { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                        .commit-info { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+                        .info-card { background: #f8f9fa; padding: 15px; border-radius: 6px; }
+                        .loading { text-align: center; padding: 50px; color: #666; }
+                        .results-table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                        .results-table th, .results-table td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+                        .results-table th { background: #f8f9fa; font-weight: 600; color: #333; }
+                        .results-table tr:hover { background: #f8f9fa; cursor: pointer; }
+                        .score-cell { text-align: center; font-weight: 600; }
+                        .score-high { color: #28a745; }
+                        .score-medium { color: #ffc107; }
+                        .score-low { color: #dc3545; }
+                        .error { color: #dc3545; background: #fff5f5; padding: 15px; border-radius: 6px; margin: 10px 0; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <h1>📊 커밋 변경사항 분석</h1>
+                            <div class="commit-info">
+                                <div class="info-card">
+                                    <h3>커밋 정보</h3>
+                                    <p><strong>🔗 SHA:</strong> <code>${commit.sha.substring(0, 8)}</code></p>
+                                    <p><strong>📝 메시지:</strong> ${commit.commit.message}</p>
+                                </div>
+                                <div class="info-card">
+                                    <h3>작성자 정보</h3>
+                                    <p><strong>👤 작성자:</strong> ${commit.commit.author.name}</p>
+                                    <p><strong>📅 날짜:</strong> ${new Date(commit.commit.author.date).toLocaleString()}</p>
+                                </div>
                             </div>
-                        `;
-                    });
-                } else {
-                    diffHtml = '<div class="code-section"><h4>변경사항 없음</h4></div>';
+                        </div>
+                        <div id="analysisContent">
+                            <div class="loading">커밋 변경사항을 분석 중입니다...</div>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `);
+            
+            analysisWindow.document.close();
+            
+            try {
+                // 커밋 변경사항 분석 요청
+                const response = await fetch('/analyze_commit_changes', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        repo_id: activeRepo.id,
+                        commit_sha: commit.sha
+                    })
+                });
+                
+                const analysisData = await response.json();
+                
+                if (analysisData.error) {
+                    throw new Error(analysisData.error);
                 }
-
-                codeDiff.innerHTML = diffHtml;
+                
+                // 분석 결과를 새 창에 표시
+                displayCommitAnalysisResults(analysisWindow, analysisData, commit);
+                
             } catch (error) {
-                codeDiff.innerHTML = `<div class="error">코드 변경사항 로딩 실패: ${error.message}</div>`;
+                const content = analysisWindow.document.getElementById('analysisContent');
+                content.innerHTML = `<div class="error">커밋 분석 실패: ${error.message}</div>`;
             }
+        }
+        
+        function displayCommitAnalysisResults(window, data, commit) {
+            const content = window.document.getElementById('analysisContent');
+            
+            let html = '';
+            
+            if (data.summary) {
+                html += `
+                    <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <h2>📈 변경사항 요약</h2>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 20px 0;">
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;">
+                                <strong>변경된 파일</strong><br>${data.summary.total_files || 0}개
+                            </div>
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;">
+                                <strong>추가된 라인</strong><br>${data.summary.total_additions || 0}줄
+                            </div>
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;">
+                                <strong>삭제된 라인</strong><br>${data.summary.total_deletions || 0}줄
+                            </div>
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;">
+                                <strong>평균 난이도</strong><br>${data.summary.avg_difficulty || 0}/10
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            if (data.files && data.files.length > 0) {
+                html += `
+                    <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <h2>📁 파일별 변경사항 분석</h2>
+                        <div style="overflow-x: auto; margin: 20px 0;">
+                            <table class="results-table">
+                                <thead>
+                                    <tr>
+                                        <th>파일명</th>
+                                        <th>코드 라인</th>
+                                        <th>코드 라인 추가</th>
+                                        <th>코드 라인 삭제</th>
+                                        <th>주석 라인</th>
+                                        <th>주석 라인 추가</th>
+                                        <th>주석 라인 삭제</th>
+                                        <th>난이도</th>
+                                        <th>개발자 수준</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                `;
+                
+                data.files.forEach((file, index) => {
+                    const fileName = (file.file_path || '').split('/').pop() || 'Unknown';
+                    const getScoreClass = (score, max = 10) => {
+                        const ratio = (score || 0) / max;
+                        if (ratio >= 0.7) return 'score-high';
+                        if (ratio >= 0.4) return 'score-medium';
+                        return 'score-low';
+                    };
+                    
+                    html += `
+                        <tr onclick="showCommitFileDiff('${file.file_path}', '${fileName}', ${JSON.stringify(file).replace(/"/g, '&quot;')})">
+                            <td><strong>${fileName}</strong></td>
+                            <td>${file.code_lines || 0}</td>
+                            <td style="color: #28a745;">${file.code_lines_added || 0}</td>
+                            <td style="color: #dc3545;">${file.code_lines_deleted || 0}</td>
+                            <td>${file.comment_lines || 0}</td>
+                            <td style="color: #28a745;">${file.comment_lines_added || 0}</td>
+                            <td style="color: #dc3545;">${file.comment_lines_deleted || 0}</td>
+                            <td class="score-cell ${getScoreClass(file.difficulty_score)}">${file.difficulty_score || 0}/10</td>
+                            <td>${file.developer_level || 'N/A'}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            } else {
+                html += '<div style="text-align: center; padding: 50px; color: #666;">변경사항이 없습니다.</div>';
+            }
+            
+            content.innerHTML = html;
+            
+            // showCommitFileDiff 함수를 새 창에 추가
+            window.showCommitFileDiff = function(filePath, fileName, fileData) {
+                // 부모 창의 함수 사용
+                if (window.opener && window.opener.showCommitFileDiff) {
+                    window.opener.showCommitFileDiff(filePath, fileName, fileData);
+                }
+            };
+            
+            // 전역 변수 설정
+            window.activeRepo = window.opener ? window.opener.activeRepo : null;
+            window.currentCommitSha = commit.sha;
         }
 
         async function analyzeRepository() {
