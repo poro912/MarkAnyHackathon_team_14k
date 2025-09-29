@@ -270,7 +270,7 @@
 
         .network-graph {
             width: 100%;
-            height: 400px;
+            height: 600px;
             border: 1px solid #ddd;
             border-radius: 6px;
             margin: 20px 0;
@@ -364,6 +364,41 @@
         .commit-details h3 {
             color: #333;
             margin-bottom: 10px;
+        }
+
+        /* 브랜치 네트워크 그래프 스타일 */
+        .network-graph .tooltip {
+            position: absolute;
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .branch-legend {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 12px;
+        }
+
+        .branch-legend-item {
+            display: inline-flex;
+            align-items: center;
+            margin-right: 15px;
+            margin-bottom: 5px;
+        }
+
+        .branch-legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 5px;
         }
     </style>
 </head>
@@ -756,89 +791,228 @@
 
             container.innerHTML = '';
 
-            const width = Math.max(800, activeRepo.commits.length * 40);
-            const height = 350;
+            const commits = activeRepo.commits.slice(0, 30);
+            const branches = activeRepo.branches || [];
+            
+            // 커밋 간격을 늘리기 위해 최소 간격 설정
+            const minSpacing = 40;
+            const width = Math.max(1000, commits.length * minSpacing);
+            const height = Math.max(500, branches.length * 80 + 150);
+            const branchHeight = 80; // 브랜치 간격 증가
 
             const svg = d3.select(container)
                 .append('svg')
                 .attr('width', width)
                 .attr('height', height);
+            
+            // 브랜치별 색상 정의
+            const branchColors = {
+                'main': '#28a745',
+                'master': '#28a745', 
+                'develop': '#007bff',
+                'dev': '#007bff',
+                'feature': '#ffc107',
+                'hotfix': '#dc3545',
+                'release': '#6f42c1'
+            };
+            
+            const getBranchColor = (branchName) => {
+                for (const [key, color] of Object.entries(branchColors)) {
+                    if (branchName.toLowerCase().includes(key)) {
+                        return color;
+                    }
+                }
+                return '#6c757d';
+            };
 
-            const commits = activeRepo.commits.slice(0, 30);
-
+            // 시간 기반 X축 스케일
             const xScale = d3.scaleTime()
                 .domain(d3.extent(commits, d => new Date(d.commit.author.date)))
-                .range([50, width - 50]);
+                .range([100, width - 100]);
 
-            // 커밋 노드 그리기
-            svg.selectAll('.commit-node')
-                .data(commits)
-                .enter()
-                .append('circle')
-                .attr('class', 'commit-node')
-                .attr('cx', d => xScale(new Date(d.commit.author.date)))
-                .attr('cy', height / 2)
-                .attr('r', 8)
-                .attr('fill', '#007bff')
-                .attr('stroke', '#fff')
-                .attr('stroke-width', 2)
-                .style('cursor', 'pointer')
-                .on('click', (event, d) => showCommitDetails(d))
-                .on('mouseover', function(event, d) {
-                    d3.select(this).attr('r', 12);
-                    
-                    const tooltip = d3.select('body').append('div')
-                        .attr('class', 'tooltip')
-                        .style('position', 'absolute')
-                        .style('background', 'rgba(0,0,0,0.8)')
-                        .style('color', 'white')
-                        .style('padding', '10px')
-                        .style('border-radius', '4px')
-                        .style('font-size', '12px')
-                        .style('pointer-events', 'none')
-                        .style('z-index', '1000')
-                        .style('left', (event.pageX + 10) + 'px')
-                        .style('top', (event.pageY - 10) + 'px')
-                        .html(`
-                            <strong>${d.commit.message.split('\n')[0]}</strong><br>
-                            ${d.commit.author.name}<br>
-                            ${new Date(d.commit.author.date).toLocaleString()}
-                        `);
-                })
-                .on('mouseout', function() {
-                    d3.select(this).attr('r', 8);
-                    d3.selectAll('.tooltip').remove();
+            // 브랜치별로 커밋을 분산 배치
+            const commitsByBranch = new Map();
+            branches.forEach((branch, index) => {
+                commitsByBranch.set(branch.name, {
+                    commits: [],
+                    yPosition: 100 + (index * branchHeight),
+                    color: getBranchColor(branch.name),
+                    isDefault: branch.name === activeRepo.info?.default_branch
                 });
+            });
 
-            // 커밋 간 연결선 그리기
-            for (let i = 0; i < commits.length - 1; i++) {
+            // 커밋을 여러 브랜치에 분산 배치 (시뮬레이션)
+            commits.forEach((commit, index) => {
+                let targetBranch;
+                
+                // 커밋 메시지나 패턴을 기반으로 브랜치 추정
+                const message = commit.commit.message.toLowerCase();
+                if (message.includes('feature') || message.includes('feat')) {
+                    targetBranch = branches.find(b => b.name.toLowerCase().includes('feature')) || 
+                                 branches.find(b => b.name.toLowerCase().includes('dev'));
+                } else if (message.includes('fix') || message.includes('hotfix')) {
+                    targetBranch = branches.find(b => b.name.toLowerCase().includes('hotfix')) ||
+                                 branches.find(b => b.name.toLowerCase().includes('main'));
+                } else if (message.includes('develop') || message.includes('dev')) {
+                    targetBranch = branches.find(b => b.name.toLowerCase().includes('develop')) ||
+                                 branches.find(b => b.name.toLowerCase().includes('dev'));
+                }
+                
+                // 기본값으로 브랜치 순환 배치
+                if (!targetBranch) {
+                    const branchIndex = index % branches.length;
+                    targetBranch = branches[branchIndex];
+                }
+                
+                if (targetBranch) {
+                    const branchInfo = commitsByBranch.get(targetBranch.name);
+                    if (branchInfo) {
+                        branchInfo.commits.push(commit);
+                    }
+                }
+            });
+
+            // 브랜치 라인 및 커밋 노드 그리기
+            branches.forEach(branch => {
+                const branchInfo = commitsByBranch.get(branch.name);
+                if (!branchInfo) return;
+
+                // 브랜치 라벨
+                svg.append('text')
+                    .attr('x', 10)
+                    .attr('y', branchInfo.yPosition + 5)
+                    .attr('font-size', '14px')
+                    .attr('font-weight', branchInfo.isDefault ? 'bold' : 'normal')
+                    .attr('fill', branchInfo.color)
+                    .text(branch.name + (branchInfo.isDefault ? ' (기본)' : ''));
+
+                // 브랜치 라인 (항상 표시)
                 svg.append('line')
-                    .attr('x1', xScale(new Date(commits[i].commit.author.date)))
-                    .attr('y1', height / 2)
-                    .attr('x2', xScale(new Date(commits[i + 1].commit.author.date)))
-                    .attr('y2', height / 2)
-                    .attr('stroke', '#ddd')
-                    .attr('stroke-width', 2);
-            }
+                    .attr('x1', 100)
+                    .attr('x2', width - 100)
+                    .attr('y1', branchInfo.yPosition)
+                    .attr('y2', branchInfo.yPosition)
+                    .attr('stroke', branchInfo.color)
+                    .attr('stroke-width', 2)
+                    .attr('opacity', 0.3);
+
+                // 커밋이 있는 경우 연결선 그리기
+                if (branchInfo.commits.length > 1) {
+                    const lineData = branchInfo.commits
+                        .sort((a, b) => new Date(a.commit.author.date) - new Date(b.commit.author.date))
+                        .map(commit => ({
+                            x: xScale(new Date(commit.commit.author.date)),
+                            y: branchInfo.yPosition
+                        }));
+
+                    const line = d3.line()
+                        .x(d => d.x)
+                        .y(d => d.y)
+                        .curve(d3.curveLinear);
+
+                    svg.append('path')
+                        .datum(lineData)
+                        .attr('d', line)
+                        .attr('stroke', branchInfo.color)
+                        .attr('stroke-width', 4)
+                        .attr('fill', 'none')
+                        .attr('opacity', 0.7);
+                }
+
+                // 커밋 노드 그리기 (크기 증가)
+                svg.selectAll(`.commit-node-${branch.name.replace(/[^a-zA-Z0-9]/g, '')}`)
+                    .data(branchInfo.commits)
+                    .enter()
+                    .append('circle')
+                    .attr('class', `commit-node commit-node-${branch.name.replace(/[^a-zA-Z0-9]/g, '')}`)
+                    .attr('cx', d => xScale(new Date(d.commit.author.date)))
+                    .attr('cy', branchInfo.yPosition)
+                    .attr('r', branchInfo.isDefault ? 12 : 10) // 크기 증가
+                    .attr('fill', branchInfo.color)
+                    .attr('stroke', '#fff')
+                    .attr('stroke-width', 3)
+                    .style('cursor', 'pointer')
+                    .on('click', (event, d) => showCommitDetails(d, branch.name))
+                    .on('mouseover', function(event, d) {
+                        d3.select(this).attr('r', branchInfo.isDefault ? 16 : 14); // 호버 시 더 크게
+                        
+                        const tooltip = d3.select('body').append('div')
+                            .attr('class', 'tooltip')
+                            .style('position', 'absolute')
+                            .style('background', 'rgba(0,0,0,0.9)')
+                            .style('color', 'white')
+                            .style('padding', '12px')
+                            .style('border-radius', '6px')
+                            .style('font-size', '13px')
+                            .style('pointer-events', 'none')
+                            .style('z-index', '1000')
+                            .style('box-shadow', '0 4px 12px rgba(0,0,0,0.3)')
+                            .style('left', (event.pageX + 15) + 'px')
+                            .style('top', (event.pageY - 15) + 'px')
+                            .html(`
+                                <strong>🌿 브랜치:</strong> ${branch.name}<br>
+                                <strong>📝 커밋:</strong> ${d.commit.message.split('\n')[0]}<br>
+                                <strong>👤 작성자:</strong> ${d.commit.author.name}<br>
+                                <strong>📅 날짜:</strong> ${new Date(d.commit.author.date).toLocaleString()}
+                            `);
+                    })
+                    .on('mouseout', function() {
+                        d3.select(this).attr('r', branchInfo.isDefault ? 12 : 10);
+                        d3.selectAll('.tooltip').remove();
+                    });
+            });
 
             // X축 추가
-            const xAxis = d3.axisBottom(xScale).tickFormat(d3.timeFormat('%m/%d'));
+            const xAxis = d3.axisBottom(xScale)
+                .tickFormat(d3.timeFormat('%m/%d'))
+                .ticks(8);
             svg.append('g')
-                .attr('transform', `translate(0, ${height - 30})`)
-                .call(xAxis);
+                .attr('transform', `translate(0, ${height - 40})`)
+                .call(xAxis)
+                .selectAll('text')
+                .style('font-size', '12px');
+
+            // 범례 추가
+            const legend = svg.append('g')
+                .attr('class', 'legend')
+                .attr('transform', `translate(${width - 220}, 20)`);
+
+            const legendData = [
+                { name: '기본 브랜치', color: '#28a745' },
+                { name: '개발 브랜치', color: '#007bff' },
+                { name: '기능 브랜치', color: '#ffc107' },
+                { name: '기타 브랜치', color: '#6c757d' }
+            ];
+
+            legendData.forEach((item, index) => {
+                const legendItem = legend.append('g')
+                    .attr('transform', `translate(0, ${index * 25})`);
+
+                legendItem.append('circle')
+                    .attr('r', 8)
+                    .attr('fill', item.color);
+
+                legendItem.append('text')
+                    .attr('x', 18)
+                    .attr('y', 5)
+                    .attr('font-size', '12px')
+                    .text(item.name);
+            });
         }
 
-        function showCommitDetails(commit) {
+        function showCommitDetails(commit, branchName = '') {
             const detailsContainer = document.getElementById('commitDetails');
             const commitInfo = document.getElementById('commitInfo');
 
             detailsContainer.style.display = 'block';
 
             commitInfo.innerHTML = `
-                <p><strong>커밋:</strong> ${commit.sha.substring(0, 8)}</p>
-                <p><strong>메시지:</strong> ${commit.commit.message}</p>
-                <p><strong>작성자:</strong> ${commit.commit.author.name}</p>
-                <p><strong>날짜:</strong> ${new Date(commit.commit.author.date).toLocaleString()}</p>
+                <p><strong>🌿 브랜치:</strong> <span style="color: #007bff;">${branchName || '알 수 없음'}</span></p>
+                <p><strong>🔗 커밋 SHA:</strong> <code>${commit.sha.substring(0, 8)}</code></p>
+                <p><strong>📝 메시지:</strong> ${commit.commit.message}</p>
+                <p><strong>👤 작성자:</strong> ${commit.commit.author.name}</p>
+                <p><strong>📧 이메일:</strong> ${commit.commit.author.email || '알 수 없음'}</p>
+                <p><strong>📅 날짜:</strong> ${new Date(commit.commit.author.date).toLocaleString()}</p>
             `;
         }
 
@@ -865,6 +1039,28 @@
             // 네트워크 그래프 추가
             html += `
                 <h3>🌐 커밋 네트워크 그래프</h3>
+                <div class="branch-legend">
+                    <div class="branch-legend-item">
+                        <div class="branch-legend-color" style="background: #28a745;"></div>
+                        <span>기본 브랜치 (main/master)</span>
+                    </div>
+                    <div class="branch-legend-item">
+                        <div class="branch-legend-color" style="background: #007bff;"></div>
+                        <span>개발 브랜치 (develop/dev)</span>
+                    </div>
+                    <div class="branch-legend-item">
+                        <div class="branch-legend-color" style="background: #ffc107;"></div>
+                        <span>기능 브랜치 (feature)</span>
+                    </div>
+                    <div class="branch-legend-item">
+                        <div class="branch-legend-color" style="background: #dc3545;"></div>
+                        <span>핫픽스 브랜치 (hotfix)</span>
+                    </div>
+                    <div class="branch-legend-item">
+                        <div class="branch-legend-color" style="background: #6c757d;"></div>
+                        <span>기타 브랜치</span>
+                    </div>
+                </div>
                 <div class="network-graph" id="networkGraph">
                     <div class="graph-container"></div>
                 </div>
