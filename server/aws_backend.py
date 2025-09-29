@@ -1085,7 +1085,20 @@ async def download_docs(build_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    print("🚀 AWS 서버 시작 중...")
-    print("☁️ AWS 환경 - 풀 기능 활성화")
-    print("🌐 브라우저에서 http://localhost 접속하세요")
-    uvicorn.run(app, host="127.0.0.1", port=80)
+    import platform
+    
+    # 환경 감지
+    is_windows = platform.system() == "Windows"
+    
+    if is_windows:
+        # 윈도우 환경
+        host = "127.0.0.1"
+        print("🚀 윈도우 환경에서 서버 시작")
+    else:
+        # AWS/Linux 환경
+        host = "0.0.0.0"
+        print("🚀 AWS/Linux 환경에서 서버 시작")
+    
+    print("☁️ 풀 기능 활성화")
+    print(f"🌐 브라우저에서 http://localhost 접속하세요")
+    uvicorn.run(app, host=host, port=80)
