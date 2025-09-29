@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>프로젝트 평가</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 40px;
+            background: #f8f9fa;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 16px;
+        }
+
+        .coming-soon {
+            background: white;
+            padding: 60px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .coming-soon-icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+        }
+
+        .coming-soon h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 28px;
+        }
+
+        .coming-soon p {
+            color: #666;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 30px;
+        }
+
+        .features-preview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 40px;
+        }
+
+        .feature-card {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .feature-card h3 {
+            color: #333;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+        }
+
+        .feature-card h3 span {
+            margin-right: 10px;
+            font-size: 20px;
+        }
+
+        .feature-card p {
+            color: #666;
+            line-height: 1.5;
+        }
+
+        .progress-bar {
+            background: #e9ecef;
+            border-radius: 10px;
+            height: 8px;
+            margin-top: 15px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+
+        .status {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 프로젝트 평가</h1>
+            <p>AI 기반 코드 품질 분석 및 프로젝트 평가 도구</p>
+        </div>
+
+        <div class="coming-soon">
+            <div class="coming-soon-icon">🚧</div>
+            <h2>개발 중입니다</h2>
+            <p>
+                프로젝트 평가 기능은 현재 개발 중입니다.<br>
+                곧 강력한 AI 기반 코드 분석 도구를 만나보실 수 있습니다.
+            </p>
+        </div>
+
+        <div class="features-preview">
+            <div class="feature-card">
+                <h3><span>🔍</span>코드 품질 분석</h3>
+                <p>코드의 복잡도, 가독성, 유지보수성을 종합적으로 분석하여 품질 점수를 제공합니다.</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 75%;"></div>
+                </div>
+                <div class="status">개발 진행률: 75%</div>
+            </div>
+
+            <div class="feature-card">
+                <h3><span>🛡️</span>보안 취약점 검사</h3>
+                <p>잠재적인 보안 위험 요소를 식별하고 개선 방안을 제시합니다.</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 60%;"></div>
+                </div>
+                <div class="status">개발 진행률: 60%</div>
+            </div>
+
+            <div class="feature-card">
+                <h3><span>⚡</span>성능 최적화 제안</h3>
+                <p>코드 성능을 분석하고 최적화 방안을 AI가 자동으로 제안합니다.</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 45%;"></div>
+                </div>
+                <div class="status">개발 진행률: 45%</div>
+            </div>
+
+            <div class="feature-card">
+                <h3><span>📈</span>프로젝트 메트릭</h3>
+                <p>라인 수, 함수 복잡도, 의존성 등 프로젝트의 다양한 지표를 시각화합니다.</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 30%;"></div>
+                </div>
+                <div class="status">개발 진행률: 30%</div>
+            </div>
+
+            <div class="feature-card">
+                <h3><span>🎯</span>개선 로드맵</h3>
+                <p>분석 결과를 바탕으로 프로젝트 개선을 위한 단계별 로드맵을 제공합니다.</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 20%;"></div>
+                </div>
+                <div class="status">개발 진행률: 20%</div>
+            </div>
+
+            <div class="feature-card">
+                <h3><span>📋</span>상세 리포트</h3>
+                <p>분석 결과를 PDF 또는 HTML 형태의 상세 리포트로 생성합니다.</p>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 10%;"></div>
+                </div>
+                <div class="status">개발 진행률: 10%</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
