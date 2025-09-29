@@ -1,0 +1,17 @@
+[
+  {
+    "file_name": "Program.cs",
+    "ai_difficulty": 3,
+    "user_difficulty": 3,
+    "difficulty_diff": 0,
+    "feedback_reason": "기본적으로 생성되는 코드를 기반으로 약간의 코드만 추가 되었기 때문에 기존 평가와 동일하게 3의 난이도로 평가하였음",
+    "file_content": "﻿// See https://aka.ms/new-console-template for more information\n\nusing ServerToClient;\nusing ServerCommunicater = ServerToClient.Server;\nusing ServerSystem;\nusing System.Data;\n\nConsole.WriteLine(\"MyMate Server Start\");\n\n// 서버 생성\nServerCommunicater server = ServerCommunicater.Instance;\nserver.clientAccept = AcceptProcess.AccpetRun;\n\n// 로그인 컨테이너 생성\n// 로그인 이후의 데이터가 저장되는 컨테이너 (Dictionary)\nLoginContainer login = LoginContainer.Instance;\n\n// 서버 리스트의 데이터를 저장하는 컨테이너\nServerContainer serverContain = ServerContainer.Instance;\n\nConsole.WriteLine(\"Server ip : \" + Default.Network.Address);\n\n// 1분마다 비 로그인 클라이언트가 연결 됐는지 확인하기위한 메소드\n//BeforeLoginEvent.ConnectCheckThread();\n\n// 버퍼 대기를 없애기 위한 변수\nchar k;\nwhile (true)\n{\n\t// 프로세스과부화를 막기위한 + 버퍼 대기를 막기 위한\n\t//Thread.Sleep(5000);\n\tk = Console.ReadKey().KeyChar;\n\n\t//BeforeLoginEvent.ConnectCheck();\n\n\n\t//beforeClient=before.Check();\n\n\t// 로그인 된 클라이언트가 있다면\n\t//if(null!=beforeClient)\n\t//{\n\t// beforeLogin 종료\n\t//\tbeforeClient.Delete();\n\t//\tlogin.registUser(beforeClient.usercode, new(beforeClient.client));\n\t//}\n}",
+    "file_metrics": {
+      "total_lines": 46,
+      "code_lines": 16,
+      "complexity": 14,
+      "language": "Unknown"
+    },
+    "timestamp": "2025-09-30T02:07:25.467547"
+  }
+]

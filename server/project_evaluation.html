@@ -358,6 +358,48 @@
             background: #6c757d;
             cursor: not-allowed;
         }
+        
+        .feedback-response {
+            background: #e8f4fd;
+            border: 1px solid #bee5eb;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+            display: none;
+        }
+        
+        .feedback-response.show {
+            display: block;
+        }
+        
+        .feedback-response h5 {
+            color: #0c5460;
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        
+        .feedback-response p {
+            color: #0c5460;
+            margin: 0;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
 
         .close-modal {
             background: #dc3545;
@@ -1684,7 +1726,11 @@
                                 <span class="difficulty-value" id="difficultyValue">${currentFileData?.difficulty_score || 5}/10</span>
                             </div>
                             <textarea class="feedback-textarea" id="feedbackReason" placeholder="난이도 평가 이유를 입력하세요..."></textarea>
-                            <button class="feedback-btn" onclick="submitFeedback('${fileName}', ${JSON.stringify(currentFileData).replace(/'/g, "\\'")})">피드백 전송</button>
+                            <button class="feedback-btn" id="feedbackBtn" onclick="submitFeedback('${fileName}', '${fileName}')">피드백 전송</button>
+                            <div class="feedback-response" id="feedbackResponse">
+                                <h5>🤖 AI 응답</h5>
+                                <p id="feedbackResponseText"></p>
+                            </div>
                         </div>
                         <div class="code-display">${data.content || '파일 내용이 비어있습니다.'}</div>
                     `;
@@ -1722,48 +1768,122 @@
             document.getElementById('difficultyValue').textContent = value + '/10';
         }
         
-        async function submitFeedback(fileName, fileData) {
-            const userDifficulty = document.getElementById('userDifficulty').value;
-            const reason = document.getElementById('feedbackReason').value.trim();
+        function submitFeedback(fileName, fileNameParam) {
+            console.log('submitFeedback 호출됨:', fileName);
+            
+            // 현재 모달에서 파일 데이터 찾기
+            const modal = document.querySelector('.file-code-modal');
+            if (!modal) {
+                alert('모달을 찾을 수 없습니다.');
+                return;
+            }
+            
+            const userDifficulty = modal.querySelector('#userDifficulty')?.value;
+            const reason = modal.querySelector('#feedbackReason')?.value?.trim();
+            const btn = modal.querySelector('#feedbackBtn');
+            const responseDiv = modal.querySelector('#feedbackResponse');
+            const responseText = modal.querySelector('#feedbackResponseText');
+            
+            console.log('요소 확인:', { userDifficulty, reason, btn: !!btn, responseDiv: !!responseDiv });
             
             if (!reason) {
                 alert('피드백 이유를 입력해주세요.');
                 return;
             }
             
-            const btn = event.target;
-            btn.disabled = true;
-            btn.textContent = '전송 중...';
+            if (!btn) {
+                alert('버튼을 찾을 수 없습니다.');
+                return;
+            }
             
-            try {
-                const response = await fetch('/submit_feedback', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        file_name: fileName,
-                        file_data: fileData,
-                        user_difficulty: parseInt(userDifficulty),
-                        ai_difficulty: fileData?.difficulty_score || 0,
-                        feedback_reason: reason
-                    })
-                });
-                
-                const result = await response.json();
+            // 전송 중 UI 표시
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading-spinner"></span>전송 중...';
+            if (responseDiv) responseDiv.classList.remove('show');
+            
+            // 파일 내용과 분석 데이터 수집
+            const codeDisplay = modal.querySelector('.code-display');
+            const fileContent = codeDisplay ? codeDisplay.textContent || '' : '';
+            
+            // 분석 데이터 수집
+            const analysisItems = modal.querySelectorAll('.analysis-item');
+            const fileData = {
+                total_lines: 0,
+                code_lines: 0,
+                cyclomatic_complexity: 0,
+                difficulty_score: parseInt(userDifficulty) || 5,
+                language: 'Unknown'
+            };
+            
+            analysisItems.forEach(item => {
+                const label = item.querySelector('strong')?.textContent;
+                const value = item.querySelector('.analysis-value')?.textContent;
+                if (label && value) {
+                    if (label.includes('총 라인')) fileData.total_lines = parseInt(value) || 0;
+                    if (label.includes('코드 라인')) fileData.code_lines = parseInt(value) || 0;
+                    if (label.includes('복잡도')) fileData.cyclomatic_complexity = parseInt(value) || 0;
+                }
+            });
+            
+            console.log('전송할 데이터:', {
+                file_name: fileName,
+                user_difficulty: parseInt(userDifficulty),
+                ai_difficulty: fileData.difficulty_score,
+                feedback_reason: reason
+            });
+            
+            // 서버로 전송
+            fetch('/submit_feedback', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    file_name: fileName,
+                    file_data: fileData,
+                    file_content: fileContent,
+                    user_difficulty: parseInt(userDifficulty),
+                    ai_difficulty: fileData.difficulty_score,
+                    feedback_reason: reason
+                })
+            })
+            .then(response => {
+                console.log('서버 응답 상태:', response.status);
+                return response.json();
+            })
+            .then(result => {
+                console.log('서버 응답:', result);
                 
                 if (result.error) {
                     alert('피드백 전송 실패: ' + result.error);
+                    if (responseDiv) responseDiv.classList.remove('show');
                 } else {
+                    // LLM 응답 표시
+                    if (result.llm_response && result.llm_response.message && responseText && responseDiv) {
+                        responseText.textContent = result.llm_response.message;
+                        responseDiv.classList.add('show');
+                    }
+                    
+                    // 성공 메시지
                     alert('피드백이 성공적으로 전송되었습니다!');
-                    document.getElementById('feedbackReason').value = '';
+                    
+                    // 입력 필드 초기화
+                    const reasonField = modal.querySelector('#feedbackReason');
+                    if (reasonField) reasonField.value = '';
                 }
-            } catch (error) {
+            })
+            .catch(error => {
+                console.error('피드백 전송 오류:', error);
                 alert('피드백 전송 오류: ' + error.message);
-            } finally {
-                btn.disabled = false;
-                btn.textContent = '피드백 전송';
-            }
+                if (responseDiv) responseDiv.classList.remove('show');
+            })
+            .finally(() => {
+                // 버튼 상태 복원
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '피드백 전송';
+                }
+            });
         }
 
     </script>

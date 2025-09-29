@@ -70,6 +70,7 @@ class FileContentRequest(BaseModel):
 class FeedbackRequest(BaseModel):
     file_name: str
     file_data: dict
+    file_content: str = ""
     user_difficulty: int
     ai_difficulty: int
     feedback_reason: str
@@ -804,6 +805,7 @@ async def submit_feedback(request: FeedbackRequest):
             'user_difficulty': request.user_difficulty,
             'difficulty_diff': request.user_difficulty - request.ai_difficulty,
             'feedback_reason': request.feedback_reason,
+            'file_content': request.file_content,
             'file_metrics': {
                 'total_lines': request.file_data.get('total_lines', 0),
                 'code_lines': request.file_data.get('code_lines', 0),
@@ -844,37 +846,104 @@ async def send_feedback_to_llm(feedback_data):
         difficulty_diff = feedback_data['difficulty_diff']
         if difficulty_diff > 0:
             trend = f"사용자가 AI보다 {difficulty_diff}점 더 어렵다고 평가"
+            analysis = "코드의 복잡성이나 이해 난이도가 과소평가되었을 가능성이 있습니다."
         elif difficulty_diff < 0:
             trend = f"사용자가 AI보다 {abs(difficulty_diff)}점 더 쉽다고 평가"
+            analysis = "코드의 난이도가 과대평가되었을 가능성이 있습니다."
         else:
             trend = "사용자와 AI 평가가 일치"
+            analysis = "현재 난이도 평가가 적절한 것으로 보입니다."
+        
+        # 코드 특성 분석
+        file_content = feedback_data.get('file_content', '')
+        code_analysis = analyze_code_characteristics(file_content)
         
         feedback_message = f"""
-피드백 데이터:
-- 파일: {feedback_data['file_name']}
-- AI 난이도: {feedback_data['ai_difficulty']}/10
-- 사용자 난이도: {feedback_data['user_difficulty']}/10
-- 차이: {trend}
-- 이유: {feedback_data['feedback_reason']}
-- 파일 정보: {feedback_data['file_metrics']['total_lines']}줄, 복잡도 {feedback_data['file_metrics']['complexity']}, {feedback_data['file_metrics']['language']}
+📊 코드 난이도 피드백 분석
 
-이 피드백을 바탕으로 난이도 평가 알고리즘을 개선해주세요.
+파일 정보:
+- 파일명: {feedback_data['file_name']}
+- 언어: {feedback_data['file_metrics']['language']}
+- 총 라인: {feedback_data['file_metrics']['total_lines']}줄
+- 코드 라인: {feedback_data['file_metrics']['code_lines']}줄
+- 복잡도: {feedback_data['file_metrics']['complexity']}
+
+난이도 평가:
+- AI 평가: {feedback_data['ai_difficulty']}/10
+- 사용자 평가: {feedback_data['user_difficulty']}/10
+- 차이: {trend}
+
+사용자 피드백:
+"{feedback_data['feedback_reason']}"
+
+코드 특성 분석:
+{code_analysis}
+
+분석 결과:
+{analysis}
         """
         
         print(f"🤖 LLM 피드백 전송: {feedback_message}")
         
-        # 실제 LLM API 호출은 여기에 구현
-        # 예: OpenAI API, Claude API 등
+        # 개선된 응답 생성
+        improvement_suggestions = generate_improvement_suggestions(feedback_data, code_analysis)
         
         return {
             'status': 'processed',
-            'message': '피드백이 분석되었습니다.',
-            'trend': trend
+            'message': f'{analysis} {improvement_suggestions}',
+            'trend': trend,
+            'code_analysis': code_analysis,
+            'suggestions': improvement_suggestions
         }
         
     except Exception as e:
         print(f"❌ LLM 피드백 전송 실패: {e}")
         return {'status': 'failed', 'error': str(e)}
+
+def analyze_code_characteristics(code_content):
+    """코드 특성 분석"""
+    if not code_content:
+        return "코드 내용을 분석할 수 없습니다."
+    
+    characteristics = []
+    
+    # 코드 길이 분석
+    lines = code_content.split('\n')
+    if len(lines) > 200:
+        characteristics.append("대용량 파일로 전체 구조 파악이 어려울 수 있음")
+    elif len(lines) < 50:
+        characteristics.append("비교적 간단한 구조의 파일")
+    
+    # 복잡한 패턴 감지
+    complex_patterns = ['class ', 'def ', 'function ', 'async ', 'await ', 'try:', 'except:', 'for ', 'while ', 'if ']
+    pattern_count = sum(code_content.lower().count(pattern) for pattern in complex_patterns)
+    
+    if pattern_count > 20:
+        characteristics.append("다수의 제어 구조와 함수가 포함된 복잡한 코드")
+    elif pattern_count > 10:
+        characteristics.append("중간 수준의 복잡도를 가진 코드")
+    else:
+        characteristics.append("비교적 단순한 구조의 코드")
+    
+    # 주석 비율 분석
+    comment_lines = len([line for line in lines if line.strip().startswith('#') or line.strip().startswith('//')]) 
+    if comment_lines > len(lines) * 0.2:
+        characteristics.append("충분한 주석으로 이해하기 쉬운 코드")
+    elif comment_lines < len(lines) * 0.05:
+        characteristics.append("주석이 부족하여 이해가 어려울 수 있는 코드")
+    
+    return " / ".join(characteristics)
+
+def generate_improvement_suggestions(feedback_data, code_analysis):
+    """개선 제안 생성"""
+    difficulty_diff = feedback_data['difficulty_diff']
+    
+    if difficulty_diff > 2:
+        return "향후 유사한 코드 패턴에 대해 난이도를 상향 조정하여 평가 정확도를 개선하겠습니다."
+    elif difficulty_diff < -2:
+        return "해당 코드 유형의 난이도 평가 기준을 완화하여 더 정확한 평가를 제공하겠습니다."
+    else:
+        return "현재 평가 기준이 적절하며, 사용자 피드백을 통해 미세 조정을 진행하겠습니다."
 
 if __name__ == "__main__":
     import uvicorn
