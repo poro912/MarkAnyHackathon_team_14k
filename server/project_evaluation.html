@@ -264,13 +264,39 @@
             border: 1px solid #ddd;
             border-radius: 6px;
             margin: 20px 0;
-            overflow-x: auto;
-            overflow-y: hidden;
+            overflow: auto;
         }
 
         .graph-container {
-            min-width: 100%;
+            min-width: 800px;
             height: 100%;
+        }
+
+        .branches-section {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+
+        .branches-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .branch-item {
+            background: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            font-size: 12px;
+        }
+
+        .branch-item.default {
+            background: #007bff;
+            color: white;
         }
 
         .loading {
@@ -615,6 +641,16 @@
                 const repoData = await repoResponse.json();
                 repository.info = repoData;
 
+                // 브랜치 정보 가져오기
+                const branchesResponse = await fetch(`/api/github/repos/${repository.id}/branches`);
+                const branchesData = await branchesResponse.json();
+                repository.branches = branchesData;
+
+                // 커밋 정보 가져오기
+                const commitsResponse = await fetch(`/api/github/repos/${repository.id}/commits?per_page=50`);
+                const commitsData = await commitsResponse.json();
+                repository.commits = commitsData;
+
                 // Git 클론 및 분석
                 const analysisResponse = await fetch('/analyze_github_repo', {
                     method: 'POST',
@@ -656,12 +692,30 @@
                     </div>
                     <div class="info-card">
                         <h3>📈 통계</h3>
-                        <p><strong>브랜치:</strong> ${activeRepo.info?.default_branch || 'main'}</p>
+                        <p><strong>커밋 수:</strong> ${activeRepo.commits?.length || 0}</p>
+                        <p><strong>브랜치 수:</strong> ${activeRepo.branches?.length || 0}</p>
                         <p><strong>생성일:</strong> ${activeRepo.info?.created_at ? new Date(activeRepo.info.created_at).toLocaleDateString() : '알 수 없음'}</p>
                         <p><strong>마지막 업데이트:</strong> ${activeRepo.info?.updated_at ? new Date(activeRepo.info.updated_at).toLocaleDateString() : '알 수 없음'}</p>
                     </div>
                 </div>
             `;
+
+            // 브랜치 목록 표시
+            if (activeRepo.branches && activeRepo.branches.length > 0) {
+                html += `
+                    <div class="branches-section">
+                        <h3>🌿 브랜치 목록</h3>
+                        <div class="branches-list">
+                `;
+                activeRepo.branches.forEach(branch => {
+                    const isDefault = branch.name === activeRepo.info?.default_branch;
+                    html += `<div class="branch-item ${isDefault ? 'default' : ''}">${branch.name}</div>`;
+                });
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
 
             // 분석 결과 표시
             if (activeRepo.analysisData) {
@@ -671,6 +725,103 @@
             }
 
             content.innerHTML = html;
+            
+            // 네트워크 그래프 렌더링
+            setTimeout(() => renderNetworkGraph(), 100);
+        }
+
+        function renderNetworkGraph() {
+            if (!activeRepo?.commits) return;
+
+            const container = document.querySelector('#networkGraph .graph-container');
+            if (!container) return;
+
+            container.innerHTML = '';
+
+            const width = Math.max(800, activeRepo.commits.length * 40);
+            const height = 350;
+
+            const svg = d3.select(container)
+                .append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            const commits = activeRepo.commits.slice(0, 30);
+
+            const xScale = d3.scaleTime()
+                .domain(d3.extent(commits, d => new Date(d.commit.author.date)))
+                .range([50, width - 50]);
+
+            // 커밋 노드 그리기
+            svg.selectAll('.commit-node')
+                .data(commits)
+                .enter()
+                .append('circle')
+                .attr('class', 'commit-node')
+                .attr('cx', d => xScale(new Date(d.commit.author.date)))
+                .attr('cy', height / 2)
+                .attr('r', 8)
+                .attr('fill', '#007bff')
+                .attr('stroke', '#fff')
+                .attr('stroke-width', 2)
+                .style('cursor', 'pointer')
+                .on('click', (event, d) => showCommitDetails(d))
+                .on('mouseover', function(event, d) {
+                    d3.select(this).attr('r', 12);
+                    
+                    const tooltip = d3.select('body').append('div')
+                        .attr('class', 'tooltip')
+                        .style('position', 'absolute')
+                        .style('background', 'rgba(0,0,0,0.8)')
+                        .style('color', 'white')
+                        .style('padding', '10px')
+                        .style('border-radius', '4px')
+                        .style('font-size', '12px')
+                        .style('pointer-events', 'none')
+                        .style('z-index', '1000')
+                        .style('left', (event.pageX + 10) + 'px')
+                        .style('top', (event.pageY - 10) + 'px')
+                        .html(`
+                            <strong>${d.commit.message.split('\n')[0]}</strong><br>
+                            ${d.commit.author.name}<br>
+                            ${new Date(d.commit.author.date).toLocaleString()}
+                        `);
+                })
+                .on('mouseout', function() {
+                    d3.select(this).attr('r', 8);
+                    d3.selectAll('.tooltip').remove();
+                });
+
+            // 커밋 간 연결선 그리기
+            for (let i = 0; i < commits.length - 1; i++) {
+                svg.append('line')
+                    .attr('x1', xScale(new Date(commits[i].commit.author.date)))
+                    .attr('y1', height / 2)
+                    .attr('x2', xScale(new Date(commits[i + 1].commit.author.date)))
+                    .attr('y2', height / 2)
+                    .attr('stroke', '#ddd')
+                    .attr('stroke-width', 2);
+            }
+
+            // X축 추가
+            const xAxis = d3.axisBottom(xScale).tickFormat(d3.timeFormat('%m/%d'));
+            svg.append('g')
+                .attr('transform', `translate(0, ${height - 30})`)
+                .call(xAxis);
+        }
+
+        function showCommitDetails(commit) {
+            const detailsContainer = document.getElementById('commitDetails');
+            const commitInfo = document.getElementById('commitInfo');
+
+            detailsContainer.style.display = 'block';
+
+            commitInfo.innerHTML = `
+                <p><strong>커밋:</strong> ${commit.sha.substring(0, 8)}</p>
+                <p><strong>메시지:</strong> ${commit.commit.message}</p>
+                <p><strong>작성자:</strong> ${commit.commit.author.name}</p>
+                <p><strong>날짜:</strong> ${new Date(commit.commit.author.date).toLocaleString()}</p>
+            `;
         }
 
         function displayAnalysisResults(data) {
@@ -692,6 +843,19 @@
                     </div>
                 `;
             }
+
+            // 네트워크 그래프 추가
+            html += `
+                <h3>🌐 커밋 네트워크 그래프</h3>
+                <div class="network-graph" id="networkGraph">
+                    <div class="graph-container"></div>
+                </div>
+                
+                <div class="commit-details" id="commitDetails" style="display: none;">
+                    <h3>📝 커밋 상세 정보</h3>
+                    <div id="commitInfo"></div>
+                </div>
+            `;
 
             if (data.files && data.files.length > 0) {
                 html += '<h2>📁 파일별 분석 결과</h2>';
@@ -757,9 +921,11 @@
                 html += '<div class="loading">분석 결과가 없습니다.</div>';
             }
 
+            // 네트워크 그래프 렌더링
+            setTimeout(() => renderNetworkGraph(), 100);
+            
             return html;
         }
-
 
     </script>
 </body>
