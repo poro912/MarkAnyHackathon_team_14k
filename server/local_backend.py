@@ -81,6 +81,22 @@ async def serve_html(filename: str):
             return FileResponse(file_path)
     raise HTTPException(status_code=404)
 
+# GitHub API 프록시 엔드포인트
+@app.get("/api/github/{path:path}")
+async def github_proxy(path: str):
+    """GitHub API 프록시 (CORS 해결)"""
+    import httpx
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"https://api.github.com/{path}")
+            return JSONResponse(
+                content=response.json(),
+                headers={"Access-Control-Allow-Origin": "*"}
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/analyze")
 async def analyze_code(files: List[UploadFile] = File(...)):
     extractor = FunctionExtractor()
