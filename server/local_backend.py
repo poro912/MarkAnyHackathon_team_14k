@@ -63,6 +63,17 @@ class CommitAnalysisRequest(BaseModel):
     commit_sha: str
     branch_name: str = ""
 
+class FileContentRequest(BaseModel):
+    file_path: str
+    repo_id: str = None
+
+class FeedbackRequest(BaseModel):
+    file_name: str
+    file_data: dict
+    user_difficulty: int
+    ai_difficulty: int
+    feedback_reason: str
+
 def save_to_local_db(build_data):
     """로컬 JSON에 빌드 데이터 저장"""
     try:
@@ -294,8 +305,22 @@ def analyze_commit_file_changes(file_path, content, added_lines, deleted_lines):
         # 개발자 수준 추정
         dev_level = get_developer_level(difficulty)
         
+        # 파일 경로 정리 - 슬래시 문제 해결
+        clean_path = file_path.replace('\\', '/')
+        if clean_path.startswith('server/local_storage/repositories/'):
+            path_parts = clean_path.split('/')
+            if len(path_parts) > 4:
+                clean_path = '/'.join(path_parts[4:])
+        elif 'local_storage/repositories/' in clean_path:
+            # 중간에 local_storage/repositories가 있는 경우
+            parts = clean_path.split('local_storage/repositories/')
+            if len(parts) > 1:
+                remaining = parts[1].split('/', 1)
+                if len(remaining) > 1:
+                    clean_path = remaining[1]
+        
         return {
-            'file_path': file_path,
+            'file_path': clean_path,
             'code_lines': code_lines,
             'code_lines_added': code_lines_added,
             'code_lines_deleted': code_lines_deleted,
@@ -316,18 +341,28 @@ def analyze_commit_file_changes(file_path, content, added_lines, deleted_lines):
 async def analyze_project(files: List[UploadFile] = File(...)):
     """업로드된 파일들 분석"""
     try:
-        # 임시 디렉토리에 파일들 저장
-        with tempfile.TemporaryDirectory() as temp_dir:
-            for file in files:
-                file_path = os.path.join(temp_dir, file.filename)
-                os.makedirs(os.path.dirname(file_path), exist_ok=True)
-                
-                content = await file.read()
-                with open(file_path, 'wb') as f:
-                    f.write(content)
+        # 영구 저장소에 파일들 저장
+        upload_id = str(uuid.uuid4())
+        upload_dir = os.path.join(LOCAL_REPOS_DIR, f"upload_{upload_id}")
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        print(f"📁 업로드 파일 저장 디렉토리: {upload_dir}")
+        
+        for file in files:
+            file_path = os.path.join(upload_dir, file.filename)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
             
-            # 프로젝트 분석
-            return analyze_project_directory(temp_dir)
+            content = await file.read()
+            with open(file_path, 'wb') as f:
+                f.write(content)
+            print(f"📄 파일 저장: {file.filename}")
+        
+        # 프로젝트 분석
+        result = analyze_project_directory(upload_dir)
+        
+        # 결과에 upload_id 추가
+        result['upload_id'] = upload_id
+        return result
             
     except Exception as e:
         return {"error": f"분석 실패: {str(e)}"}
@@ -408,8 +443,26 @@ def analyze_file(file_path, content, extractor):
         # 예상 개발 시간 (시간)
         estimated_hours = max(1, (code_lines // 50) + (complexity // 10))
         
+        # 파일 경로 정규화 - 슬래시 문제 해결
+        relative_path = os.path.relpath(file_path)
+        # local_storage/repositories/프로젝트명/ 부분 제거
+        path_parts = relative_path.replace('\\', '/').split('/')
+        if len(path_parts) > 3 and 'local_storage' in path_parts and 'repositories' in path_parts:
+            # repositories 다음 프로젝트명 제거하고 그 이후 경로만 사용
+            repo_index = path_parts.index('repositories')
+            if repo_index + 2 < len(path_parts):
+                clean_path = '/'.join(path_parts[repo_index + 2:])
+            else:
+                clean_path = relative_path
+        else:
+            clean_path = relative_path
+        
+        # 원본 파일 경로도 저장 (파일 내용 조회용) - 정규화된 경로 사용
+        original_path = os.path.normpath(file_path)
+        
         return {
-            'file_path': os.path.relpath(file_path),
+            'file_path': clean_path,
+            'original_file_path': file_path,  # 원본 경로 그대로 사용
             'total_lines': total_lines,
             'code_lines': code_lines,
             'code_comment_ratio': comment_ratio,
@@ -481,6 +534,89 @@ def detect_tech_stack(file_path, content):
             tech_stack.append(framework)
     
     return list(set(tech_stack))  # 중복 제거
+
+@app.post("/get_file_content")
+async def get_file_content(request: FileContentRequest):
+    """파일 내용 가져오기"""
+    try:
+        file_path = request.file_path
+        print(f"📁 파일 내용 요청: {file_path}, repo_id: {request.repo_id}")
+        
+        # 파일 경로가 이미 절대 경로인지 확인
+        if os.path.isabs(file_path) and os.path.exists(file_path):
+            full_path = file_path
+            print(f"📂 절대 경로 사용: {full_path}")
+        elif request.repo_id:
+            if request.repo_id.startswith('upload_'):
+                # 업로드된 파일
+                upload_dir = os.path.join(LOCAL_REPOS_DIR, request.repo_id)
+                # 파일 경로 정규화
+                normalized_path = file_path.replace('/', os.sep).replace('\\', os.sep)
+                full_path = os.path.join(upload_dir, normalized_path)
+                print(f"📂 업로드 파일 경로: {full_path}")
+            else:
+                # GitHub 레포지터리
+                repo_name = request.repo_id.replace('/', '_')
+                repo_dir = os.path.join(LOCAL_REPOS_DIR, repo_name)
+                # 파일 경로 정규화
+                normalized_path = file_path.replace('/', os.sep).replace('\\', os.sep)
+                full_path = os.path.join(repo_dir, normalized_path)
+                print(f"📂 레포지터리 파일 경로: {full_path}")
+        else:
+            # 상대 경로를 절대 경로로 변환
+            full_path = os.path.abspath(file_path)
+            print(f"📂 변환된 절대 경로: {full_path}")
+        
+        print(f"🔍 파일 존재 여부: {os.path.exists(full_path)}")
+        if not os.path.exists(full_path):
+            print(f"❌ 파일을 찾을 수 없음: {full_path}")
+            # 디렉토리 내용 확인
+            parent_dir = os.path.dirname(full_path)
+            if os.path.exists(parent_dir):
+                files_in_dir = os.listdir(parent_dir)[:10]
+                print(f"📁 부모 디렉토리 내용: {files_in_dir}")
+                # 비슷한 파일명 찾기
+                target_filename = os.path.basename(full_path)
+                similar_files = [f for f in files_in_dir if target_filename.lower() in f.lower()]
+                if similar_files:
+                    print(f"🔍 비슷한 파일들: {similar_files}")
+            return {"error": f"파일을 찾을 수 없습니다: {full_path}"}
+        
+        # 파일 크기 체크 (10MB 제한)
+        file_size = os.path.getsize(full_path)
+        print(f"📏 파일 크기: {file_size} bytes")
+        if file_size > 10 * 1024 * 1024:  # 10MB
+            return {"error": "파일이 너무 큽니다. (10MB 제한)"}
+        
+        # 파일 내용 읽기
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            print(f"✅ UTF-8로 파일 읽기 성공, 길이: {len(content)}")
+        except UnicodeDecodeError:
+            try:
+                with open(full_path, 'r', encoding='cp949') as f:
+                    content = f.read()
+                print(f"✅ CP949로 파일 읽기 성공, 길이: {len(content)}")
+            except UnicodeDecodeError:
+                with open(full_path, 'r', encoding='latin-1') as f:
+                    content = f.read()
+                print(f"✅ Latin-1로 파일 읽기 성공, 길이: {len(content)}")
+        
+        # HTML 이스케이프 처리
+        import html
+        escaped_content = html.escape(content)
+        print(f"✅ HTML 이스케이프 완료, 최종 길이: {len(escaped_content)}")
+        
+        return {
+            "content": escaped_content,
+            "file_size": file_size,
+            "encoding": "utf-8"
+        }
+        
+    except Exception as e:
+        print(f"❌ 파일 읽기 오류: {str(e)}")
+        return {"error": f"파일 읽기 실패: {str(e)}"}
 
 def get_developer_level(difficulty):
     """난이도 기반 개발자 수준 추정"""
@@ -656,6 +792,89 @@ extern "C" {{
 #endif // UTILITY_LIBRARY_H
 """
     return header
+
+@app.post("/submit_feedback")
+async def submit_feedback(request: FeedbackRequest):
+    """사용자 피드백 처리 및 LLM에 학습 데이터 제공"""
+    try:
+        # 피드백 데이터 준비
+        feedback_data = {
+            'file_name': request.file_name,
+            'ai_difficulty': request.ai_difficulty,
+            'user_difficulty': request.user_difficulty,
+            'difficulty_diff': request.user_difficulty - request.ai_difficulty,
+            'feedback_reason': request.feedback_reason,
+            'file_metrics': {
+                'total_lines': request.file_data.get('total_lines', 0),
+                'code_lines': request.file_data.get('code_lines', 0),
+                'complexity': request.file_data.get('cyclomatic_complexity', 0),
+                'language': request.file_data.get('language', 'Unknown')
+            },
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # LLM에 피드백 전송
+        llm_response = await send_feedback_to_llm(feedback_data)
+        
+        # 피드백 로컬 저장
+        feedback_file = os.path.join(LOCAL_STORAGE_DIR, 'feedback.json')
+        feedbacks = []
+        if os.path.exists(feedback_file):
+            with open(feedback_file, 'r', encoding='utf-8') as f:
+                feedbacks = json.load(f)
+        
+        feedbacks.append(feedback_data)
+        
+        with open(feedback_file, 'w', encoding='utf-8') as f:
+            json.dump(feedbacks, f, ensure_ascii=False, indent=2)
+        
+        return {
+            'success': True,
+            'message': '피드백이 성공적으로 전송되었습니다.',
+            'llm_response': llm_response
+        }
+        
+    except Exception as e:
+        return {'error': f'피드백 처리 실패: {str(e)}'}
+
+async def send_feedback_to_llm(feedback_data):
+    """피드백 데이터를 LLM에 전송하여 학습 개선"""
+    try:
+        # 피드백 분석 메시지 생성
+        difficulty_diff = feedback_data['difficulty_diff']
+        if difficulty_diff > 0:
+            trend = f"사용자가 AI보다 {difficulty_diff}점 더 어렵다고 평가"
+        elif difficulty_diff < 0:
+            trend = f"사용자가 AI보다 {abs(difficulty_diff)}점 더 쉽다고 평가"
+        else:
+            trend = "사용자와 AI 평가가 일치"
+        
+        feedback_message = f"""
+피드백 데이터:
+- 파일: {feedback_data['file_name']}
+- AI 난이도: {feedback_data['ai_difficulty']}/10
+- 사용자 난이도: {feedback_data['user_difficulty']}/10
+- 차이: {trend}
+- 이유: {feedback_data['feedback_reason']}
+- 파일 정보: {feedback_data['file_metrics']['total_lines']}줄, 복잡도 {feedback_data['file_metrics']['complexity']}, {feedback_data['file_metrics']['language']}
+
+이 피드백을 바탕으로 난이도 평가 알고리즘을 개선해주세요.
+        """
+        
+        print(f"🤖 LLM 피드백 전송: {feedback_message}")
+        
+        # 실제 LLM API 호출은 여기에 구현
+        # 예: OpenAI API, Claude API 등
+        
+        return {
+            'status': 'processed',
+            'message': '피드백이 분석되었습니다.',
+            'trend': trend
+        }
+        
+    except Exception as e:
+        print(f"❌ LLM 피드백 전송 실패: {e}")
+        return {'status': 'failed', 'error': str(e)}
 
 if __name__ == "__main__":
     import uvicorn

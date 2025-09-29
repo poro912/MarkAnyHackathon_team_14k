@@ -180,6 +180,204 @@
             background: #f8f9fa;
         }
 
+        .file-code-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            display: none;
+        }
+
+        .file-code-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%;
+            height: 90%;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+
+        .file-code-header {
+            background: #f8f9fa;
+            padding: 20px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        
+        .file-code-header h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+
+        .file-code-body {
+            height: calc(100% - 120px);
+            overflow: auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+
+        .code-display {
+            background: #2d3748;
+            color: #e2e8f0;
+            border: 1px solid #4a5568;
+            border-radius: 8px;
+            padding: 20px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            overflow: auto;
+            max-height: 100%;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .analysis-info {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .analysis-info h4 {
+            margin: 0 0 15px 0;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        .analysis-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-top: 15px;
+        }
+        
+        .analysis-item {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 12px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .analysis-item strong {
+            display: block;
+            font-size: 12px;
+            opacity: 0.9;
+            margin-bottom: 4px;
+        }
+        
+        .analysis-value {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        
+        .feedback-section {
+            background: #fff;
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .feedback-title {
+            color: #495057;
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        
+        .feedback-input-group {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .difficulty-slider {
+            flex: 1;
+            height: 6px;
+            border-radius: 3px;
+            background: #e9ecef;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        .difficulty-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+        }
+        
+        .difficulty-value {
+            min-width: 40px;
+            text-align: center;
+            font-weight: 600;
+            color: #007bff;
+        }
+        
+        .feedback-textarea {
+            width: 100%;
+            min-height: 80px;
+            padding: 12px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            resize: vertical;
+            font-family: inherit;
+        }
+        
+        .feedback-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        
+        .feedback-btn:hover {
+            background: #218838;
+        }
+        
+        .feedback-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .close-modal {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3);
+        }
+
+        .close-modal:hover {
+            background: #c82333;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(220, 53, 69, 0.4);
+        }
+
         .score-cell {
             text-align: center;
             font-weight: 600;
@@ -539,6 +737,10 @@
                 results.innerHTML = `<div style="color: red;">오류: ${data.error}</div>`;
                 return;
             }
+            
+            // 전역 변수로 분석 데이터 저장
+            window.lastAnalysisData = data;
+            window.currentAnalysisFiles = data.files || [];
 
             let html = '';
 
@@ -1178,6 +1380,10 @@
         }
 
         function displayAnalysisResults(data) {
+            // 전역 변수로 분석 데이터 저장
+            window.lastAnalysisData = data;
+            window.currentAnalysisFiles = data.files || [];
+            
             let html = '';
 
             if (data.summary) {
@@ -1246,6 +1452,9 @@
         }
 
         function renderPaginatedTable(files) {
+            // 전역 변수로 현재 파일 목록 저장
+            window.currentAnalysisFiles = files;
+            
             const totalPages = Math.ceil(files.length / itemsPerPage);
             const startIndex = (currentPage - 1) * itemsPerPage;
             const endIndex = startIndex + itemsPerPage;
@@ -1275,8 +1484,9 @@
                         <tbody>
             `;
             
-            currentFiles.forEach(file => {
+            currentFiles.forEach((file, index) => {
                 const fileName = (file.file_path || '').split('/').pop() || 'Unknown';
+                const originalIndex = startIndex + index;
                 const getScoreClass = (score, max = 10) => {
                     const ratio = (score || 0) / max;
                     if (ratio >= 0.7) return 'score-high';
@@ -1284,8 +1494,9 @@
                     return 'score-low';
                 };
                 
+                const escapedPath = (file.original_file_path || file.file_path).replace(/\\/g, '\\\\');
                 html += `
-                    <tr>
+                    <tr style="cursor: pointer;" onclick="showFileCode('${escapedPath}', '${fileName}', window.currentAnalysisFiles[${originalIndex}])">
                         <td><strong>${fileName}</strong></td>
                         <td>${file.total_lines || 0}</td>
                         <td>${file.code_lines || 0}</td>
@@ -1340,6 +1551,218 @@
                 if (resultsDiv && resultsDiv.innerHTML) {
                     location.reload();
                 }
+            }
+        }
+
+        async function showFileCode(filePath, fileName, fileData = null) {
+            console.log('showFileCode 호출됨:', { filePath, fileName, activeRepo: activeRepo?.id });
+            
+            // 현재 분석 데이터에서 파일 정보 찾기
+            let currentFileData = fileData;
+            if (!currentFileData) {
+                const allFiles = activeRepo?.analysisData?.files || window.lastAnalysisData?.files || [];
+                currentFileData = allFiles.find(f => 
+                    (f.file_path && f.file_path.includes(fileName)) || 
+                    (f.original_file_path && f.original_file_path.includes(fileName))
+                );
+            }
+            
+            // 모달 생성
+            const modal = document.createElement('div');
+            modal.className = 'file-code-modal';
+            modal.innerHTML = `
+                <div class="file-code-content">
+                    <div class="file-code-header">
+                        <div>
+                            <h3>📄 ${fileName}</h3>
+                            ${currentFileData ? `
+                                <div style="display: flex; gap: 20px; margin-top: 12px; font-size: 14px; flex-wrap: wrap;">
+                                    <div style="background: rgba(0,123,255,0.1); padding: 6px 12px; border-radius: 20px; border: 1px solid rgba(0,123,255,0.3);">
+                                        <strong>난이도:</strong> <span class="score-cell ${getScoreClass(currentFileData.difficulty_score)}" style="font-weight: 600;">${currentFileData.difficulty_score || 0}/10</span>
+                                    </div>
+                                    <div style="background: rgba(40,167,69,0.1); padding: 6px 12px; border-radius: 20px; border: 1px solid rgba(40,167,69,0.3);">
+                                        <strong>개발자 수준:</strong> <span style="font-weight: 600;">${currentFileData.developer_level || 'N/A'}</span>
+                                    </div>
+                                    <div style="background: rgba(255,193,7,0.1); padding: 6px 12px; border-radius: 20px; border: 1px solid rgba(255,193,7,0.3);">
+                                        <strong>언어:</strong> <span style="font-weight: 600;">${currentFileData.language || 'N/A'}</span>
+                                    </div>
+                                    <div style="background: rgba(108,117,125,0.1); padding: 6px 12px; border-radius: 20px; border: 1px solid rgba(108,117,125,0.3);">
+                                        <strong>예상 시간:</strong> <span style="font-weight: 600;">${currentFileData.estimated_dev_hours || 0}h</span>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <button class="close-modal" onclick="closeFileModal()">✕ 닫기</button>
+                    </div>
+                    <div class="file-code-body">
+                        <div class="loading">파일 내용을 불러오는 중...</div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            modal.style.display = 'block';
+            
+            try {
+                console.log('파일 내용 요청 시작:', filePath);
+                
+                // 파일 내용 요청
+                const response = await fetch('/get_file_content', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        file_path: filePath,
+                        repo_id: activeRepo ? activeRepo.id : null
+                    })
+                });
+                
+                console.log('서버 응답 상태:', response.status);
+                const data = await response.json();
+                console.log('서버 응답 데이터:', data);
+                
+                const bodyDiv = modal.querySelector('.file-code-body');
+                
+                if (data.error) {
+                    console.error('서버 오류:', data.error);
+                    bodyDiv.innerHTML = `<div class="error">파일을 불러올 수 없습니다: ${data.error}</div>`;
+                } else {
+                    console.log('파일 내용 로드 성공, 길이:', data.content?.length);
+                    
+                    // 분석 정보와 함께 파일 내용 표시
+                    let analysisInfo = '';
+                    if (currentFileData) {
+                        analysisInfo = `
+                            <div class="analysis-info">
+                                <h4>📊 분석 결과</h4>
+                                <div class="analysis-grid">
+                                    <div class="analysis-item">
+                                        <strong>총 라인</strong>
+                                        <div class="analysis-value">${currentFileData.total_lines || 0}</div>
+                                    </div>
+                                    <div class="analysis-item">
+                                        <strong>코드 라인</strong>
+                                        <div class="analysis-value">${currentFileData.code_lines || 0}</div>
+                                    </div>
+                                    <div class="analysis-item">
+                                        <strong>주석 비율</strong>
+                                        <div class="analysis-value">${currentFileData.code_comment_ratio || '0%'}</div>
+                                    </div>
+                                    <div class="analysis-item">
+                                        <strong>복잡도</strong>
+                                        <div class="analysis-value">${currentFileData.cyclomatic_complexity || 0}</div>
+                                    </div>
+                                    <div class="analysis-item">
+                                        <strong>유지보수성</strong>
+                                        <div class="analysis-value">${currentFileData.maintainability_index || 0}/100</div>
+                                    </div>
+                                    <div class="analysis-item">
+                                        <strong>패턴 사용</strong>
+                                        <div class="analysis-value">${currentFileData.pattern_score || 0}/10</div>
+                                    </div>
+                                    <div class="analysis-item">
+                                        <strong>최적화</strong>
+                                        <div class="analysis-value">${currentFileData.optimization_score || 0}/10</div>
+                                    </div>
+                                    <div class="analysis-item">
+                                        <strong>모범사례</strong>
+                                        <div class="analysis-value">${currentFileData.best_practices_score || 0}/10</div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    bodyDiv.innerHTML = `
+                        ${analysisInfo}
+                        <div class="feedback-section">
+                            <h4 class="feedback-title">📝 난이도 피드백</h4>
+                            <div class="feedback-input-group">
+                                <label>난이도:</label>
+                                <input type="range" class="difficulty-slider" id="userDifficulty" min="1" max="10" value="${currentFileData?.difficulty_score || 5}" oninput="updateDifficultyValue(this.value)">
+                                <span class="difficulty-value" id="difficultyValue">${currentFileData?.difficulty_score || 5}/10</span>
+                            </div>
+                            <textarea class="feedback-textarea" id="feedbackReason" placeholder="난이도 평가 이유를 입력하세요..."></textarea>
+                            <button class="feedback-btn" onclick="submitFeedback('${fileName}', ${JSON.stringify(currentFileData).replace(/'/g, "\\'")})">피드백 전송</button>
+                        </div>
+                        <div class="code-display">${data.content || '파일 내용이 비어있습니다.'}</div>
+                    `;
+                }
+                
+            } catch (error) {
+                console.error('파일 로드 오류:', error);
+                const bodyDiv = modal.querySelector('.file-code-body');
+                bodyDiv.innerHTML = `<div class="error">파일 로드 실패: ${error.message}</div>`;
+            }
+        }
+        
+        function getScoreClass(score, max = 10) {
+            const ratio = (score || 0) / max;
+            if (ratio >= 0.7) return 'score-high';
+            if (ratio >= 0.4) return 'score-medium';
+            return 'score-low';
+        }
+
+        function closeFileModal() {
+            const modal = document.querySelector('.file-code-modal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        // ESC 키로 모달 닫기
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeFileModal();
+            }
+        });
+        
+        function updateDifficultyValue(value) {
+            document.getElementById('difficultyValue').textContent = value + '/10';
+        }
+        
+        async function submitFeedback(fileName, fileData) {
+            const userDifficulty = document.getElementById('userDifficulty').value;
+            const reason = document.getElementById('feedbackReason').value.trim();
+            
+            if (!reason) {
+                alert('피드백 이유를 입력해주세요.');
+                return;
+            }
+            
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = '전송 중...';
+            
+            try {
+                const response = await fetch('/submit_feedback', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        file_name: fileName,
+                        file_data: fileData,
+                        user_difficulty: parseInt(userDifficulty),
+                        ai_difficulty: fileData?.difficulty_score || 0,
+                        feedback_reason: reason
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.error) {
+                    alert('피드백 전송 실패: ' + result.error);
+                } else {
+                    alert('피드백이 성공적으로 전송되었습니다!');
+                    document.getElementById('feedbackReason').value = '';
+                }
+            } catch (error) {
+                alert('피드백 전송 오류: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '피드백 전송';
             }
         }
 
