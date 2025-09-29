@@ -58,6 +58,11 @@ class GitRepoRequest(BaseModel):
     repo_url: str
     repo_id: str
 
+class CommitAnalysisRequest(BaseModel):
+    repo_id: str
+    commit_sha: str
+    branch_name: str = ""
+
 def save_to_local_db(build_data):
     """로컬 JSON에 빌드 데이터 저장"""
     try:
@@ -143,6 +148,169 @@ async def analyze_github_repo(request: GitRepoRequest):
             
     except Exception as e:
         return {"error": f"분석 실패: {str(e)}"}
+
+@app.post("/analyze_commit_changes")
+async def analyze_commit_changes(request: CommitAnalysisRequest):
+    """커밋 변경사항 분석"""
+    try:
+        # 레포지터리 디렉토리 경로
+        repo_name = request.repo_id.replace('/', '_')
+        repo_dir = os.path.join(LOCAL_REPOS_DIR, repo_name)
+        
+        if not os.path.exists(repo_dir):
+            return {"error": "레포지터리를 찾을 수 없습니다. 먼저 레포지터리를 분석해주세요."}
+        
+        # Git 레포지터리 객체 생성
+        repo = git.Repo(repo_dir)
+        
+        # 커밋 객체 가져오기
+        try:
+            commit = repo.commit(request.commit_sha)
+        except Exception as e:
+            return {"error": f"커밋을 찾을 수 없습니다: {str(e)}"}
+        
+        # 커밋의 변경사항 분석
+        files_data = []
+        total_additions = 0
+        total_deletions = 0
+        difficulty_scores = []
+        
+        # 부모 커밋과 비교하여 변경사항 추출
+        if commit.parents:
+            parent_commit = commit.parents[0]
+            diff = parent_commit.diff(commit, create_patch=True)
+            
+            for diff_item in diff:
+                file_path = diff_item.a_path or diff_item.b_path
+                if not file_path:
+                    continue
+                    
+                file_ext = os.path.splitext(file_path)[1].lower()
+                supported_extensions = {'.py', '.js', '.ts', '.java', '.cpp', '.c', '.cs', '.php', '.rb', '.go'}
+                if file_ext not in supported_extensions:
+                    continue
+                
+                try:
+                    # Git stats를 사용하여 정확한 변경사항 통계 가져오기
+                    stats = commit.stats.files.get(file_path, {'insertions': 0, 'deletions': 0})
+                    added_lines = stats.get('insertions', 0)
+                    deleted_lines = stats.get('deletions', 0)
+                    
+                    # diff가 없으면 patch에서 직접 계산
+                    if added_lines == 0 and deleted_lines == 0 and diff_item.diff:
+                        try:
+                            diff_text = diff_item.diff.decode('utf-8', errors='ignore')
+                            for line in diff_text.split('\n'):
+                                if line.startswith('+') and not line.startswith('+++'):
+                                    added_lines += 1
+                                elif line.startswith('-') and not line.startswith('---'):
+                                    deleted_lines += 1
+                        except:
+                            pass
+                    
+                    # 현재 파일 내용 분석
+                    current_content = ""
+                    current_file_path = os.path.join(repo_dir, file_path)
+                    if os.path.exists(current_file_path):
+                        with open(current_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            current_content = f.read()
+                    elif diff_item.b_blob:  # 새 파일인 경우
+                        current_content = diff_item.b_blob.data_stream.read().decode('utf-8', errors='ignore')
+                    
+                    if current_content or added_lines > 0:
+                        file_analysis = analyze_commit_file_changes(
+                            file_path, current_content, added_lines, deleted_lines
+                        )
+                        
+                        if file_analysis:
+                            files_data.append(file_analysis)
+                            total_additions += added_lines
+                            total_deletions += deleted_lines
+                            difficulty_scores.append(file_analysis['difficulty_score'])
+                
+                except Exception as e:
+                    print(f"파일 분석 오류 {file_path}: {e}")
+                    continue
+        
+        # 요약 정보 계산
+        summary = {
+            'total_files': len(files_data),
+            'total_additions': total_additions,
+            'total_deletions': total_deletions,
+            'avg_difficulty': round(sum(difficulty_scores) / len(difficulty_scores), 2) if difficulty_scores else 0
+        }
+        
+        return {
+            'summary': summary,
+            'files': files_data,
+            'commit_info': {
+                'sha': request.commit_sha,
+                'message': commit.message,
+                'author': commit.author.name,
+                'date': commit.committed_datetime.isoformat(),
+                'branch': request.branch_name
+            }
+        }
+        
+    except Exception as e:
+        return {"error": f"커밋 분석 실패: {str(e)}"}
+
+def analyze_commit_file_changes(file_path, content, added_lines, deleted_lines):
+    """커밋에서 변경된 파일 분석"""
+    try:
+        lines = content.split('\n')
+        total_lines = len(lines)
+        
+        # 코드 라인과 주석 라인 구분
+        code_lines = 0
+        comment_lines = 0
+        
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            elif stripped.startswith('#') or stripped.startswith('//') or stripped.startswith('/*') or stripped.startswith('*'):
+                comment_lines += 1
+            else:
+                code_lines += 1
+        
+        # 추가/삭제된 라인에서 코드와 주석 구분 (간단한 추정)
+        code_lines_added = max(0, int(added_lines * 0.8))  # 80%가 코드라고 가정
+        comment_lines_added = added_lines - code_lines_added
+        code_lines_deleted = max(0, int(deleted_lines * 0.8))
+        comment_lines_deleted = deleted_lines - code_lines_deleted
+        
+        # 변경사항 기반 난이도 계산
+        change_complexity = added_lines + deleted_lines
+        file_complexity = calculate_complexity(content)
+        
+        # 난이도 점수 (1-10)
+        difficulty = min(10, max(1, 
+            (change_complexity // 10) +  # 변경량 기반
+            (file_complexity // 20) +    # 파일 복잡도 기반
+            (1 if added_lines > deleted_lines else 0)  # 추가가 더 많으면 +1
+        ))
+        
+        # 개발자 수준 추정
+        dev_level = get_developer_level(difficulty)
+        
+        return {
+            'file_path': file_path,
+            'code_lines': code_lines,
+            'code_lines_added': code_lines_added,
+            'code_lines_deleted': code_lines_deleted,
+            'comment_lines': comment_lines,
+            'comment_lines_added': comment_lines_added,
+            'comment_lines_deleted': comment_lines_deleted,
+            'difficulty_score': difficulty,
+            'developer_level': dev_level,
+            'total_additions': added_lines,
+            'total_deletions': deleted_lines
+        }
+        
+    except Exception as e:
+        print(f"커밋 파일 분석 오류: {e}")
+        return None
 
 @app.post("/analyze_project")
 async def analyze_project(files: List[UploadFile] = File(...)):
