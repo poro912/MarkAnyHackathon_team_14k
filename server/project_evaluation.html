@@ -139,14 +139,18 @@
             margin: 15px 0;
         }
 
+        .table-container {
+            overflow-x: auto;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
         .results-table {
             width: 100%;
+            min-width: 1200px;
             border-collapse: collapse;
             background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin: 20px 0;
         }
 
         .results-table th,
@@ -452,25 +456,26 @@
             if (data.files && data.files.length > 0) {
                 html += '<h2>📁 파일별 분석 결과</h2>';
                 html += `
-                    <table class="results-table">
-                        <thead>
-                            <tr>
-                                <th>파일명</th>
-                                <th>총 라인</th>
-                                <th>코드 라인</th>
-                                <th>주석 비율</th>
-                                <th>복잡도</th>
-                                <th>유지보수성</th>
-                                <th>예상 시간</th>
-                                <th>난이도</th>
-                                <th>개발자 수준</th>
-                                <th>패턴 사용</th>
-                                <th>최적화</th>
-                                <th>모범사례</th>
-                                <th>기술 스택</th>
-                            </tr>
-                        </thead>
-                        <tbody>
+                    <div class="table-container">
+                        <table class="results-table">
+                            <thead>
+                                <tr>
+                                    <th>파일명</th>
+                                    <th>총 라인</th>
+                                    <th>코드 라인</th>
+                                    <th>주석 비율</th>
+                                    <th>복잡도</th>
+                                    <th>유지보수성</th>
+                                    <th>예상 시간</th>
+                                    <th>난이도</th>
+                                    <th>개발자 수준</th>
+                                    <th>패턴 사용</th>
+                                    <th>최적화</th>
+                                    <th>모범사례</th>
+                                    <th>기술 스택</th>
+                                </tr>
+                            </thead>
+                            <tbody>
                 `;
                 
                 data.files.forEach(file => {
@@ -502,8 +507,9 @@
                 });
                 
                 html += `
-                        </tbody>
-                    </table>
+                            </tbody>
+                        </table>
+                    </div>
                 `;
             }
 
@@ -682,25 +688,26 @@
             if (data.files && data.files.length > 0) {
                 html += '<h2>📁 파일별 분석 결과</h2>';
                 html += `
-                    <table class="results-table">
-                        <thead>
-                            <tr>
-                                <th>파일명</th>
-                                <th>총 라인</th>
-                                <th>코드 라인</th>
-                                <th>주석 비율</th>
-                                <th>복잡도</th>
-                                <th>유지보수성</th>
-                                <th>예상 시간</th>
-                                <th>난이도</th>
-                                <th>개발자 수준</th>
-                                <th>패턴 사용</th>
-                                <th>최적화</th>
-                                <th>모범사례</th>
-                                <th>기술 스택</th>
-                            </tr>
-                        </thead>
-                        <tbody>
+                    <div class="table-container">
+                        <table class="results-table">
+                            <thead>
+                                <tr>
+                                    <th>파일명</th>
+                                    <th>총 라인</th>
+                                    <th>코드 라인</th>
+                                    <th>주석 비율</th>
+                                    <th>복잡도</th>
+                                    <th>유지보수성</th>
+                                    <th>예상 시간</th>
+                                    <th>난이도</th>
+                                    <th>개발자 수준</th>
+                                    <th>패턴 사용</th>
+                                    <th>최적화</th>
+                                    <th>모범사례</th>
+                                    <th>기술 스택</th>
+                                </tr>
+                            </thead>
+                            <tbody>
                 `;
                 
                 data.files.forEach(file => {
@@ -732,8 +739,9 @@
                 });
                 
                 html += `
-                        </tbody>
-                    </table>
+                            </tbody>
+                        </table>
+                    </div>
                 `;
             } else {
                 html += '<div class="loading">분석 결과가 없습니다.</div>';

@@ -14,6 +14,7 @@ import subprocess
 import shutil
 import git
 from urllib.parse import urlparse
+import stat
 
 # 현재 디렉토리 경로
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -33,10 +34,12 @@ app.mount("/static", StaticFiles(directory=CURRENT_DIR), name="static")
 # 로컬 저장소 설정
 LOCAL_STORAGE_DIR = os.path.join(CURRENT_DIR, "local_storage")
 LOCAL_BUILDS_DIR = os.path.join(LOCAL_STORAGE_DIR, "builds")
+LOCAL_REPOS_DIR = os.path.join(LOCAL_STORAGE_DIR, "repositories")
 LOCAL_DB_FILE = os.path.join(LOCAL_STORAGE_DIR, "builds.json")
 
 # 디렉토리 생성
 os.makedirs(LOCAL_BUILDS_DIR, exist_ok=True)
+os.makedirs(LOCAL_REPOS_DIR, exist_ok=True)
 
 # 로컬 JSON DB 초기화
 if not os.path.exists(LOCAL_DB_FILE):
@@ -104,22 +107,39 @@ async def github_proxy(path: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def force_remove_readonly(func, path, exc):
+    """읽기 전용 파일 강제 삭제"""
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception:
+        pass
+
 @app.post("/analyze_github_repo")
 async def analyze_github_repo(request: GitRepoRequest):
     """GitHub 레포지터리 클론 및 분석"""
     try:
-        # 임시 디렉토리에 클론
-        with tempfile.TemporaryDirectory() as temp_dir:
-            repo_dir = os.path.join(temp_dir, "repo")
-            
-            # Git 클론
+        # 영구 저장 디렉토리 설정
+        repo_name = request.repo_id.replace('/', '_')
+        repo_dir = os.path.join(LOCAL_REPOS_DIR, repo_name)
+        
+        # 이미 존재하면 강제 삭제 후 재클론
+        if os.path.exists(repo_dir):
             try:
-                git.Repo.clone_from(request.repo_url, repo_dir)
+                shutil.rmtree(repo_dir, onerror=force_remove_readonly)
             except Exception as e:
-                return {"error": f"레포지터리 클론 실패: {str(e)}"}
-            
-            # 프로젝트 분석
-            return analyze_project_directory(repo_dir)
+                print(f"기존 폴더 삭제 실패: {e}")
+        
+        # Git 클론
+        try:
+            print(f"📥 클론 중: {request.repo_url} -> {repo_dir}")
+            git.Repo.clone_from(request.repo_url, repo_dir)
+            print(f"✅ 클론 완료: {repo_dir}")
+        except Exception as e:
+            return {"error": f"레포지터리 클론 실패: {str(e)}"}
+        
+        # 프로젝트 분석
+        return analyze_project_directory(repo_dir)
             
     except Exception as e:
         return {"error": f"분석 실패: {str(e)}"}
