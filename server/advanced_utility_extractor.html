@@ -387,6 +387,12 @@
                 if (result.utilities && result.utilities.length > 0) {
                     displayUtilities(result.utilities);
                     document.getElementById('utilitiesSection').style.display = 'block';
+                    
+                    // 즉시 추출 히스토리에 추가
+                    addToExtractionHistoryImmediately(result.utilities);
+                    
+                    // 백그라운드에서 서버에도 저장
+                    autoUploadToExtractionHistory(result.utilities);
                 } else {
                     alert('추출할 수 있는 유틸리티 함수가 없습니다.');
                 }
@@ -460,6 +466,12 @@
                 setTimeout(() => {
                     displayUtilities(result.utilities);
                     document.getElementById('utilitiesSection').style.display = 'block';
+                    
+                    // 즉시 추출 히스토리에 추가
+                    addToExtractionHistoryImmediately(result.utilities);
+                    
+                    // 백그라운드에서 서버에도 저장
+                    autoUploadToExtractionHistory(result.utilities);
                 }, 500);
                 
             } catch (error) {
@@ -470,6 +482,107 @@
                 setTimeout(() => {
                     uploadSection.innerHTML = originalHTML;
                 }, 2000);
+            }
+        }
+
+        function addToExtractionHistoryImmediately(utilities) {
+            console.log('=== 즉시 추출 히스토리 추가 시작 ===');
+            console.log('추가할 함수 개수:', utilities.length);
+            
+            // 로컬 스토리지에 즉시 추가
+            const existingHistory = JSON.parse(localStorage.getItem('extractionHistory') || '[]');
+            console.log('기존 히스토리 개수:', existingHistory.length);
+            
+            utilities.forEach((utility, index) => {
+                console.log(`함수 ${index + 1} 처리 중:`, utility.name);
+                
+                const historyItem = {
+                    id: Date.now() + Math.random(),
+                    name: utility.name,
+                    description: utility.description,
+                    code: utility.code,
+                    file: utility.file || 'direct_input.cpp',
+                    timestamp: new Date().toISOString(),
+                    extracted_at: new Date().toLocaleString('ko-KR', {
+                        timeZone: 'Asia/Seoul',
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    })
+                };
+                
+                console.log('생성된 히스토리 아이템:', historyItem);
+                existingHistory.unshift(historyItem); // 최신 항목을 맨 앞에 추가
+            });
+            
+            localStorage.setItem('extractionHistory', JSON.stringify(existingHistory));
+            console.log('로컬 스토리지 저장 완료. 총 개수:', existingHistory.length);
+            
+            // 추출 히스토리 탭이 활성화되어 있으면 즉시 새로고침
+            const historyTab = document.getElementById('extraction-history');
+            const isHistoryTabActive = historyTab && historyTab.classList.contains('active');
+            console.log('히스토리 탭 활성화 상태:', isHistoryTabActive);
+            
+            if (isHistoryTabActive) {
+                console.log('히스토리 탭이 활성화되어 있어서 즉시 새로고침');
+                loadExtractionHistory();
+            } else {
+                console.log('히스토리 탭이 비활성화되어 있음');
+            }
+            
+            console.log('=== 즉시 추출 히스토리 추가 완료 ===');
+        }
+
+        async function autoUploadToExtractionHistory(utilities) {
+            try {
+                console.log('=== 자동 추출 히스토리 업로드 시작 ===');
+                console.log('업로드할 함수 개수:', utilities.length);
+                
+                for (const utility of utilities) {
+                    console.log('업로드 중인 함수:', utility.name);
+                    
+                    const functionData = {
+                        name: utility.name,
+                        description: utility.description,
+                        code: utility.code,
+                        file: utility.file || 'direct_input.cpp',
+                        timestamp: new Date().toISOString(),
+                        extracted_at: new Date().toLocaleString('ko-KR', {
+                            timeZone: 'Asia/Seoul',
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                        })
+                    };
+                    
+                    console.log('전송할 데이터:', functionData);
+                    
+                    const response = await fetch('/save_extraction', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(functionData)
+                    });
+                    
+                    console.log('응답 상태:', response.status);
+                    const result = await response.json();
+                    console.log('응답 결과:', result);
+                    
+                    if (!response.ok) {
+                        console.error('추출 히스토리 저장 실패:', utility.name, result);
+                    } else {
+                        console.log('저장 성공:', utility.name);
+                    }
+                }
+                
+                console.log('=== 추출 히스토리 자동 업로드 완료 ===');
+            } catch (error) {
+                console.error('=== 추출 히스토리 자동 업로드 오류 ===', error);
             }
         }
 
@@ -1063,9 +1176,41 @@
 
         async function loadExtractionHistory() {
             try {
-                const response = await fetch('/extraction_history');
-                const data = await response.json();
-                displayExtractionHistory(data.functions || []);
+                console.log('=== 추출 히스토리 로드 시작 ===');
+                
+                // 로컬 스토리지에서 데이터 가져오기
+                const localHistory = JSON.parse(localStorage.getItem('extractionHistory') || '[]');
+                console.log('로컬 히스토리 개수:', localHistory.length);
+                
+                // 서버에서 데이터 가져오기
+                let serverHistory = [];
+                try {
+                    const response = await fetch('/extraction_history');
+                    const data = await response.json();
+                    serverHistory = data.functions || [];
+                    console.log('서버 히스토리 개수:', serverHistory.length);
+                } catch (error) {
+                    console.error('서버 히스토리 로드 실패:', error);
+                }
+                
+                // 로컬과 서버 데이터 합치기 (중복 제거)
+                const allHistory = [...localHistory];
+                serverHistory.forEach(serverItem => {
+                    const exists = localHistory.some(localItem => 
+                        localItem.name === serverItem.name && 
+                        localItem.code === serverItem.code
+                    );
+                    if (!exists) {
+                        allHistory.push(serverItem);
+                    }
+                });
+                
+                // 시간순으로 정렬 (최신 순)
+                allHistory.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+                
+                console.log('전체 히스토리 개수:', allHistory.length);
+                displayExtractionHistory(allHistory);
+                
             } catch (error) {
                 console.error('추출 히스토리 로드 오류:', error);
                 document.getElementById('extractionHistoryList').innerHTML = '<p>히스토리를 불러오는데 실패했습니다.</p>';
@@ -1108,9 +1253,6 @@
                             <small style="color: #666;">${func.timestamp ? new Date(func.timestamp).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul'}) : ''}</small>
                         </div>
                         <p style="color: #666; margin: 5px 0;"><strong>설명:</strong> ${func.description || '설명 없음'}</p>
-                        <p style="color: #666; margin: 5px 0;"><strong>목적:</strong> ${func.purpose || '목적 정보 없음'}</p>
-                        <p style="color: #666; margin: 5px 0;"><strong>매개변수:</strong> ${func.parameters || '매개변수 정보 없음'}</p>
-                        <p style="color: #666; margin: 5px 0;"><strong>반환타입:</strong> ${func.return_type || '반환타입 정보 없음'}</p>
                         <details style="margin-top: 10px;">
                             <summary style="cursor: pointer; font-weight: bold;">코드 보기</summary>
                             <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; margin-top: 10px;"><code>${func.code || '// 코드 없음'}</code></pre>
