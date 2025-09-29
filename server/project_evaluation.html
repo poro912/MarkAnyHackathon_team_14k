@@ -511,7 +511,7 @@
         }
 
         // GitHub Repository Analysis Functions
-        function addRepository() {
+        async function addRepository() {
             const url = document.getElementById('repoUrl').value.trim();
             if (!url) return;
 
@@ -543,7 +543,7 @@
             document.getElementById('repoUrl').value = '';
             
             renderRepoTabs();
-            loadRepository(repository);
+            await loadAndAnalyzeRepository(repository);
         }
 
         function renderRepoTabs() {
@@ -570,7 +570,11 @@
         function selectRepository(repoId) {
             activeRepo = repositories.find(r => r.id === repoId);
             renderRepoTabs();
-            renderRepository();
+            if (activeRepo.analysisData) {
+                renderRepositoryWithAnalysis();
+            } else {
+                loadAndAnalyzeRepository(activeRepo);
+            }
         }
 
         function removeRepository(repoId) {
@@ -580,40 +584,56 @@
             }
             renderRepoTabs();
             if (activeRepo) {
-                renderRepository();
+                renderRepositoryWithAnalysis();
             } else {
                 document.getElementById('gitContent').innerHTML = '<div class="loading">레포지터리를 추가하여 분석을 시작하세요</div>';
             }
         }
 
-        async function loadRepository(repository) {
+        async function loadAndAnalyzeRepository(repository) {
             activeRepo = repository;
             renderRepoTabs();
             
-            document.getElementById('gitContent').innerHTML = '<div class="loading">레포지터리 정보를 로딩 중...</div>';
+            const gitContent = document.getElementById('gitContent');
+            gitContent.innerHTML = '<div class="loading">레포지터리를 클론하고 분석 중...</div>';
 
             try {
+                // GitHub API로 기본 정보 가져오기
                 const repoResponse = await fetch(`/api/github/repos/${repository.id}`);
                 const repoData = await repoResponse.json();
-
-                const commitsResponse = await fetch(`/api/github/repos/${repository.id}/commits?per_page=50`);
-                const commitsData = await commitsResponse.json();
-
                 repository.info = repoData;
-                repository.commits = commitsData;
 
-                renderRepository();
-                renderNetworkGraph();
+                // Git 클론 및 분석
+                const analysisResponse = await fetch('/analyze_github_repo', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        repo_url: repository.url,
+                        repo_id: repository.id
+                    })
+                });
+
+                const analysisData = await analysisResponse.json();
+                
+                if (analysisData.error) {
+                    throw new Error(analysisData.error);
+                }
+
+                repository.analysisData = analysisData;
+                renderRepositoryWithAnalysis();
+                
             } catch (error) {
-                document.getElementById('gitContent').innerHTML = `<div class="error">레포지터리 로딩 실패: ${error.message}</div>`;
+                gitContent.innerHTML = `<div class="error">레포지터리 분석 실패: ${error.message}</div>`;
             }
         }
 
-        function renderRepository() {
+        function renderRepositoryWithAnalysis() {
             if (!activeRepo) return;
 
             const content = document.getElementById('gitContent');
-            content.innerHTML = `
+            let html = `
                 <div class="repo-info">
                     <div class="info-card">
                         <h3>📊 레포지터리 정보</h3>
@@ -624,166 +644,105 @@
                     </div>
                     <div class="info-card">
                         <h3>📈 통계</h3>
-                        <p><strong>커밋 수:</strong> ${activeRepo.commits?.length || 0}</p>
                         <p><strong>브랜치:</strong> ${activeRepo.info?.default_branch || 'main'}</p>
                         <p><strong>생성일:</strong> ${activeRepo.info?.created_at ? new Date(activeRepo.info.created_at).toLocaleDateString() : '알 수 없음'}</p>
                         <p><strong>마지막 업데이트:</strong> ${activeRepo.info?.updated_at ? new Date(activeRepo.info.updated_at).toLocaleDateString() : '알 수 없음'}</p>
                     </div>
                 </div>
-                
-                <h3>🌐 커밋 네트워크 그래프</h3>
-                <div class="network-graph" id="networkGraph"></div>
-                
-                <div class="commit-details" id="commitDetails" style="display: none;">
-                    <h3>📝 커밋 상세 정보</h3>
-                    <div id="commitInfo"></div>
-                </div>
             `;
 
-            renderNetworkGraph();
+            // 분석 결과 표시
+            if (activeRepo.analysisData) {
+                html += '<div class="results">';
+                html += displayAnalysisResults(activeRepo.analysisData);
+                html += '</div>';
+            }
+
+            content.innerHTML = html;
         }
 
-        async function renderNetworkGraph() {
-            if (!activeRepo?.commits) return;
+        function displayAnalysisResults(data) {
+            let html = '';
 
-            const container = document.getElementById('networkGraph');
-            if (!container) return;
+            if (data.summary) {
+                html += `
+                    <div class="summary">
+                        <h2>📊 프로젝트 분석 결과</h2>
+                        <div class="metrics">
+                            <div class="metric"><strong>총 파일 수</strong><br>${data.summary.total_files || 0}</div>
+                            <div class="metric"><strong>총 라인 수</strong><br>${data.summary.total_lines || 0}</div>
+                            <div class="metric"><strong>평균 복잡도</strong><br>${data.summary.avg_complexity || 0}</div>
+                            <div class="metric"><strong>예상 개발 시간</strong><br>${data.summary.total_estimated_hours || 0}시간</div>
+                            <div class="metric"><strong>최고 난이도</strong><br>${data.summary.max_difficulty || 0}/10</div>
+                        </div>
+                    </div>
+                `;
+            }
 
-            container.innerHTML = '';
+            if (data.files && data.files.length > 0) {
+                html += '<h2>📁 파일별 분석 결과</h2>';
+                html += `
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>파일명</th>
+                                <th>총 라인</th>
+                                <th>코드 라인</th>
+                                <th>주석 비율</th>
+                                <th>복잡도</th>
+                                <th>유지보수성</th>
+                                <th>예상 시간</th>
+                                <th>난이도</th>
+                                <th>개발자 수준</th>
+                                <th>패턴 사용</th>
+                                <th>최적화</th>
+                                <th>모범사례</th>
+                                <th>기술 스택</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                data.files.forEach(file => {
+                    const fileName = (file.file_path || '').split('/').pop() || 'Unknown';
+                    const getScoreClass = (score, max = 10) => {
+                        const ratio = (score || 0) / max;
+                        if (ratio >= 0.7) return 'score-high';
+                        if (ratio >= 0.4) return 'score-medium';
+                        return 'score-low';
+                    };
+                    
+                    html += `
+                        <tr>
+                            <td><strong>${fileName}</strong></td>
+                            <td>${file.total_lines || 0}</td>
+                            <td>${file.code_lines || 0}</td>
+                            <td>${file.code_comment_ratio || '0%'}</td>
+                            <td class="score-cell ${getScoreClass(file.cyclomatic_complexity, 50)}">${file.cyclomatic_complexity || 0}</td>
+                            <td class="score-cell ${getScoreClass(file.maintainability_index, 100)}">${file.maintainability_index || 0}/100</td>
+                            <td>${file.estimated_dev_hours || 0}h</td>
+                            <td class="score-cell ${getScoreClass(file.difficulty_score)}">${file.difficulty_score || 0}/10</td>
+                            <td>${file.developer_level || 'N/A'}</td>
+                            <td class="score-cell ${getScoreClass(file.pattern_score)}">${file.pattern_score || 0}/10</td>
+                            <td class="score-cell ${getScoreClass(file.optimization_score)}">${file.optimization_score || 0}/10</td>
+                            <td class="score-cell ${getScoreClass(file.best_practices_score)}">${file.best_practices_score || 0}/10</td>
+                            <td>${(file.tech_stack && file.tech_stack.length > 0) ? file.tech_stack.join(', ') : 'N/A'}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                        </tbody>
+                    </table>
+                `;
+            } else {
+                html += '<div class="loading">분석 결과가 없습니다.</div>';
+            }
 
-            const commits = activeRepo.commits;
-            const nodeSpacing = 80;
-            const branchHeight = 60;
-            const margin = { top: 40, right: 40, bottom: 40, left: 40 };
-            
-            // 스크롤 가능한 너비 계산
-            const totalWidth = Math.max(container.clientWidth, commits.length * nodeSpacing + margin.left + margin.right);
-            const height = 400;
-
-            const svg = d3.select(container)
-                .append('svg')
-                .attr('class', 'graph-container')
-                .attr('width', totalWidth)
-                .attr('height', height);
-
-            // 브랜치별 커밋 그룹화 (간단한 시뮬레이션)
-            const branches = {};
-            commits.forEach((commit, i) => {
-                // 실제로는 GitHub API에서 브랜치 정보를 가져와야 하지만, 여기서는 시뮬레이션
-                const branchName = commit.commit.message.includes('Merge') ? 'feature' : 'main';
-                if (!branches[branchName]) {
-                    branches[branchName] = [];
-                }
-                branches[branchName].push({ ...commit, index: i });
-            });
-
-            const branchNames = Object.keys(branches);
-            const branchColors = ['#007bff', '#28a745', '#ffc107', '#dc3545', '#6f42c1'];
-
-            // 각 브랜치별로 노드와 링크 생성
-            branchNames.forEach((branchName, branchIndex) => {
-                const branchCommits = branches[branchName];
-                const yPosition = margin.top + (branchIndex * branchHeight) + (height - margin.top - margin.bottom) / (branchNames.length + 1) * (branchIndex + 1);
-                const color = branchColors[branchIndex % branchColors.length];
-
-                // 브랜치 라벨
-                svg.append('text')
-                    .attr('x', margin.left - 10)
-                    .attr('y', yPosition - 5)
-                    .attr('text-anchor', 'end')
-                    .attr('font-size', '12px')
-                    .attr('fill', color)
-                    .attr('font-weight', 'bold')
-                    .text(branchName);
-
-                // 브랜치 라인
-                if (branchCommits.length > 1) {
-                    const lineData = branchCommits.map((commit, i) => ({
-                        x: margin.left + (commit.index * nodeSpacing),
-                        y: yPosition
-                    }));
-
-                    const line = d3.line()
-                        .x(d => d.x)
-                        .y(d => d.y)
-                        .curve(d3.curveLinear);
-
-                    svg.append('path')
-                        .datum(lineData)
-                        .attr('fill', 'none')
-                        .attr('stroke', color)
-                        .attr('stroke-width', 2)
-                        .attr('opacity', 0.6)
-                        .attr('d', line);
-                }
-
-                // 노드 그리기
-                const nodeGroup = svg.append('g')
-                    .selectAll('g')
-                    .data(branchCommits)
-                    .enter().append('g')
-                    .attr('transform', d => `translate(${margin.left + (d.index * nodeSpacing)},${yPosition})`)
-                    .style('cursor', 'pointer')
-                    .on('click', function(event, d) {
-                        showCommitDetails(d);
-                        // 선택된 노드 하이라이트
-                        svg.selectAll('circle').attr('stroke-width', 2);
-                        d3.select(this).select('circle').attr('stroke-width', 4);
-                    });
-
-                // 원 추가
-                nodeGroup.append('circle')
-                    .attr('r', 6)
-                    .attr('fill', color)
-                    .attr('stroke', 'white')
-                    .attr('stroke-width', 2);
-
-                // 커밋 메시지 (짧게)
-                nodeGroup.append('text')
-                    .attr('y', -15)
-                    .attr('text-anchor', 'middle')
-                    .attr('font-size', '10px')
-                    .attr('fill', '#666')
-                    .text(d => d.commit.message.substring(0, 15) + (d.commit.message.length > 15 ? '...' : ''));
-
-                // 툴팁
-                nodeGroup.append('title')
-                    .text(d => `브랜치: ${branchName}\n${d.commit.message}\n작성자: ${d.commit.author.name}\n날짜: ${new Date(d.commit.author.date).toLocaleDateString()}`);
-            });
-
-            // 브랜치 간 머지 연결선 (Merge 커밋 감지)
-            commits.forEach((commit, i) => {
-                if (commit.commit.message.includes('Merge') && i > 0) {
-                    const fromY = margin.top + (height - margin.top - margin.bottom) / (branchNames.length + 1) * 2; // feature 브랜치
-                    const toY = margin.top + (height - margin.top - margin.bottom) / (branchNames.length + 1) * 1; // main 브랜치
-                    const x = margin.left + (i * nodeSpacing);
-
-                    svg.append('line')
-                        .attr('x1', x)
-                        .attr('y1', fromY)
-                        .attr('x2', x)
-                        .attr('y2', toY)
-                        .attr('stroke', '#999')
-                        .attr('stroke-width', 2)
-                        .attr('stroke-dasharray', '5,5')
-                        .attr('opacity', 0.7);
-                }
-            });
+            return html;
         }
 
-        function showCommitDetails(commit) {
-            const detailsDiv = document.getElementById('commitDetails');
-            if (!detailsDiv) return;
 
-            detailsDiv.style.display = 'block';
-            document.getElementById('commitInfo').innerHTML = `
-                <p><strong>커밋 메시지:</strong> ${commit.commit.message}</p>
-                <p><strong>작성자:</strong> ${commit.commit.author.name}</p>
-                <p><strong>이메일:</strong> ${commit.commit.author.email}</p>
-                <p><strong>날짜:</strong> ${new Date(commit.commit.author.date).toLocaleString()}</p>
-                <p><strong>SHA:</strong> ${commit.sha.substring(0, 10)}</p>
-            `;
-        }
     </script>
 </body>
 </html>
