@@ -41,6 +41,22 @@
         
         .loading { text-align: center; padding: 50px; color: #666; }
         .error { color: #ff4444; background: #fff5f5; padding: 15px; border-radius: 6px; margin: 10px 0; }
+
+        .results { margin-top: 30px; }
+        .summary { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 30px; }
+        .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
+        .metric { background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }
+        .results-table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin: 20px 0; }
+        .results-table th, .results-table td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        .results-table th { background: #f8f9fa; font-weight: 600; color: #333; }
+        .results-table tr:hover { background: #f8f9fa; }
+        .score-cell { text-align: center; font-weight: 600; }
+        .score-high { color: #28a745; }
+        .score-medium { color: #ffc107; }
+        .score-low { color: #dc3545; }
+
+        .analyze-btn { margin-top: 20px; background: #28a745; border: none; color: white; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 16px; }
+        .analyze-btn:hover { background: #218838; }
     </style>
 </head>
 <body>
@@ -140,11 +156,9 @@
             document.getElementById('content').innerHTML = '<div class="loading">레포지터리 정보를 로딩 중...</div>';
 
             try {
-                // 로컬 프록시를 통해 GitHub API 호출
                 const repoResponse = await fetch(`/api/github/repos/${repository.id}`);
                 const repoData = await repoResponse.json();
 
-                // 커밋 정보 가져오기
                 const commitsResponse = await fetch(`/api/github/repos/${repository.id}/commits?per_page=50`);
                 const commitsData = await commitsResponse.json();
 
@@ -188,6 +202,12 @@
                     <div id="commitInfo"></div>
                     <div class="code-diff" id="codeDiff"></div>
                 </div>
+
+                <button class="analyze-btn" onclick="analyzeRepository()">
+                    📊 레포지터리 코드 분석 시작
+                </button>
+
+                <div id="analysisResults" class="results"></div>
             `;
 
             renderNetworkGraph();
@@ -209,18 +229,12 @@
                 .attr('width', width)
                 .attr('height', height);
 
-            const commits = activeRepo.commits.slice(0, 20); // 최근 20개 커밋만 표시
+            const commits = activeRepo.commits.slice(0, 20);
 
-            // 커밋을 시간순으로 배치
             const xScale = d3.scaleTime()
                 .domain(d3.extent(commits, d => new Date(d.commit.author.date)))
                 .range([50, width - 50]);
 
-            const yScale = d3.scaleLinear()
-                .domain([0, 1])
-                .range([height - 50, 50]);
-
-            // 커밋 노드 그리기
             svg.selectAll('.commit-node')
                 .data(commits)
                 .enter()
@@ -237,7 +251,6 @@
                 .on('mouseover', function(event, d) {
                     d3.select(this).attr('r', 12);
                     
-                    // 툴팁 표시
                     const tooltip = d3.select('body').append('div')
                         .attr('class', 'tooltip')
                         .style('position', 'absolute')
@@ -260,7 +273,6 @@
                     d3.selectAll('.tooltip').remove();
                 });
 
-            // 커밋 간 연결선 그리기
             for (let i = 0; i < commits.length - 1; i++) {
                 svg.append('line')
                     .attr('x1', xScale(new Date(commits[i].commit.author.date)))
@@ -271,7 +283,6 @@
                     .attr('stroke-width', 2);
             }
 
-            // X축 (시간) 추가
             const xAxis = d3.axisBottom(xScale).tickFormat(d3.timeFormat('%m/%d'));
             svg.append('g')
                 .attr('transform', `translate(0, ${height - 30})`)
@@ -295,13 +306,12 @@
             codeDiff.innerHTML = '<div class="loading">코드 변경사항을 로딩 중...</div>';
 
             try {
-                // 커밋의 변경사항 가져오기
                 const diffResponse = await fetch(`/api/github/repos/${activeRepo.id}/commits/${commit.sha}`);
                 const diffData = await diffResponse.json();
 
                 let diffHtml = '';
                 if (diffData.files && diffData.files.length > 0) {
-                    diffData.files.slice(0, 3).forEach(file => { // 최대 3개 파일만 표시
+                    diffData.files.slice(0, 3).forEach(file => {
                         diffHtml += `
                             <div class="code-section">
                                 <h4>📄 ${file.filename}</h4>
@@ -319,7 +329,125 @@
             }
         }
 
-        // 초기화
+        async function analyzeRepository() {
+            if (!activeRepo) {
+                alert('분석할 레포지터리를 선택하세요');
+                return;
+            }
+
+            const resultsDiv = document.getElementById('analysisResults');
+            resultsDiv.innerHTML = '<div class="loading">레포지터리 코드를 분석 중...</div>';
+
+            try {
+                const response = await fetch('/analyze_github_repo', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        repo_url: activeRepo.url,
+                        repo_id: activeRepo.id
+                    })
+                });
+
+                const data = await response.json();
+                displayResults(data, resultsDiv);
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="error">분석 오류: ${error.message}</div>`;
+            }
+        }
+
+        function displayResults(data, container = document.getElementById('analysisResults')) {
+            if (!container) {
+                console.error('결과 컨테이너를 찾을 수 없습니다');
+                return;
+            }
+
+            if (data.error) {
+                container.innerHTML = `<div class="error">오류: ${data.error}</div>`;
+                return;
+            }
+
+            let html = '';
+
+            if (data.summary) {
+                html += `
+                    <div class="summary">
+                        <h2>📊 프로젝트 요약</h2>
+                        <div class="metrics">
+                            <div class="metric"><strong>총 파일 수</strong><br>${data.summary.total_files || 0}</div>
+                            <div class="metric"><strong>총 라인 수</strong><br>${data.summary.total_lines || 0}</div>
+                            <div class="metric"><strong>평균 복잡도</strong><br>${data.summary.avg_complexity || 0}</div>
+                            <div class="metric"><strong>예상 개발 시간</strong><br>${data.summary.total_estimated_hours || 0}시간</div>
+                            <div class="metric"><strong>최고 난이도</strong><br>${data.summary.max_difficulty || 0}/10</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (data.files && data.files.length > 0) {
+                html += '<h2>📁 파일별 분석 결과</h2>';
+                html += `
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>파일명</th>
+                                <th>총 라인</th>
+                                <th>코드 라인</th>
+                                <th>주석 비율</th>
+                                <th>복잡도</th>
+                                <th>유지보수성</th>
+                                <th>예상 시간</th>
+                                <th>난이도</th>
+                                <th>개발자 수준</th>
+                                <th>패턴 사용</th>
+                                <th>최적화</th>
+                                <th>모범사례</th>
+                                <th>기술 스택</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                data.files.forEach(file => {
+                    const fileName = (file.file_path || '').split('/').pop() || 'Unknown';
+                    const getScoreClass = (score, max = 10) => {
+                        const ratio = (score || 0) / max;
+                        if (ratio >= 0.7) return 'score-high';
+                        if (ratio >= 0.4) return 'score-medium';
+                        return 'score-low';
+                    };
+                    
+                    html += `
+                        <tr>
+                            <td><strong>${fileName}</strong></td>
+                            <td>${file.total_lines || 0}</td>
+                            <td>${file.code_lines || 0}</td>
+                            <td>${file.code_comment_ratio || '0%'}</td>
+                            <td class="score-cell ${getScoreClass(file.cyclomatic_complexity, 50)}">${file.cyclomatic_complexity || 0}</td>
+                            <td class="score-cell ${getScoreClass(file.maintainability_index, 100)}">${file.maintainability_index || 0}/100</td>
+                            <td>${file.estimated_dev_hours || 0}h</td>
+                            <td class="score-cell ${getScoreClass(file.difficulty_score)}">${file.difficulty_score || 0}/10</td>
+                            <td>${file.developer_level || 'N/A'}</td>
+                            <td class="score-cell ${getScoreClass(file.pattern_score)}">${file.pattern_score || 0}/10</td>
+                            <td class="score-cell ${getScoreClass(file.optimization_score)}">${file.optimization_score || 0}/10</td>
+                            <td class="score-cell ${getScoreClass(file.best_practices_score)}">${file.best_practices_score || 0}/10</td>
+                            <td>${(file.tech_stack && file.tech_stack.length > 0) ? file.tech_stack.join(', ') : 'N/A'}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                        </tbody>
+                    </table>
+                `;
+            } else {
+                html += '<div class="loading">분석 결과가 없습니다.</div>';
+            }
+
+            container.innerHTML = html;
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             console.log('GitHub Repository Analyzer 초기화 완료');
         });
