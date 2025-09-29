@@ -148,7 +148,7 @@
 
         .results-table {
             width: 100%;
-            min-width: 1200px;
+            min-width: 1500px;
             border-collapse: collapse;
             background: white;
         }
@@ -158,12 +158,22 @@
             padding: 12px;
             text-align: left;
             border-bottom: 1px solid #ddd;
+            white-space: nowrap;
         }
 
         .results-table th {
             background: #f8f9fa;
             font-weight: 600;
             color: #333;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .results-table td:first-child {
+            white-space: normal;
+            word-break: break-word;
+            max-width: 200px;
         }
 
         .results-table tr:hover {
@@ -297,6 +307,37 @@
         .branch-item.default {
             background: #007bff;
             color: white;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 20px 0;
+            gap: 10px;
+        }
+
+        .pagination button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            background: white;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .pagination button:hover {
+            background: #f8f9fa;
+        }
+
+        .pagination button.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
 
         .loading {
@@ -509,34 +550,7 @@
                             <tbody>
                 `;
                 
-                data.files.forEach(file => {
-                    const fileName = file.file_path.split('/').pop();
-                    const getScoreClass = (score, max = 10) => {
-                        const ratio = score / max;
-                        if (ratio >= 0.7) return 'score-high';
-                        if (ratio >= 0.4) return 'score-medium';
-                        return 'score-low';
-                    };
-                    
-                    html += `
-                        <tr>
-                            <td><strong>${fileName}</strong></td>
-                            <td>${file.total_lines}</td>
-                            <td>${file.code_lines}</td>
-                            <td>${file.code_comment_ratio}</td>
-                            <td class="score-cell ${getScoreClass(file.cyclomatic_complexity, 50)}">${file.cyclomatic_complexity}</td>
-                            <td class="score-cell ${getScoreClass(file.maintainability_index, 100)}">${file.maintainability_index}/100</td>
-                            <td>${file.estimated_dev_hours}h</td>
-                            <td class="score-cell ${getScoreClass(file.difficulty_score)}">${file.difficulty_score}/10</td>
-                            <td>${file.developer_level}</td>
-                            <td class="score-cell ${getScoreClass(file.pattern_score)}">${file.pattern_score}/10</td>
-                            <td class="score-cell ${getScoreClass(file.optimization_score)}">${file.optimization_score}/10</td>
-                            <td class="score-cell ${getScoreClass(file.best_practices_score)}">${file.best_practices_score}/10</td>
-                            <td>${file.tech_stack_identification || '분석 중...'}</td>
-                            <td>${file.language || file.tech_stack?.join(', ') || 'N/A'}</td>
-                        </tr>
-                    `;
-                });
+                html += renderPaginatedTable(data.files).replace('<h2>📁 파일별 분석 결과</h2>', '');
                 
                 html += `
                             </tbody>
@@ -547,6 +561,10 @@
 
             results.innerHTML = html;
         }
+
+        // Pagination variables
+        let currentPage = 1;
+        const itemsPerPage = 10;
 
         // GitHub Repository Analysis Functions
         async function addRepository() {
@@ -859,64 +877,7 @@
 
             if (data.files && data.files.length > 0) {
                 html += '<h2>📁 파일별 분석 결과</h2>';
-                html += `
-                    <div class="table-container">
-                        <table class="results-table">
-                            <thead>
-                                <tr>
-                                    <th>파일명</th>
-                                    <th>총 라인</th>
-                                    <th>코드 라인</th>
-                                    <th>주석 비율</th>
-                                    <th>복잡도</th>
-                                    <th>유지보수성</th>
-                                    <th>예상 시간</th>
-                                    <th>난이도</th>
-                                    <th>개발자 수준</th>
-                                    <th>패턴 사용</th>
-                                    <th>최적화</th>
-                                    <th>모범사례</th>
-                                    <th>기술 스택 식별</th>
-                                    <th>언어</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                `;
-                
-                data.files.forEach(file => {
-                    const fileName = (file.file_path || '').split('/').pop() || 'Unknown';
-                    const getScoreClass = (score, max = 10) => {
-                        const ratio = (score || 0) / max;
-                        if (ratio >= 0.7) return 'score-high';
-                        if (ratio >= 0.4) return 'score-medium';
-                        return 'score-low';
-                    };
-                    
-                    html += `
-                        <tr>
-                            <td><strong>${fileName}</strong></td>
-                            <td>${file.total_lines || 0}</td>
-                            <td>${file.code_lines || 0}</td>
-                            <td>${file.code_comment_ratio || '0%'}</td>
-                            <td class="score-cell ${getScoreClass(file.cyclomatic_complexity, 50)}">${file.cyclomatic_complexity || 0}</td>
-                            <td class="score-cell ${getScoreClass(file.maintainability_index, 100)}">${file.maintainability_index || 0}/100</td>
-                            <td>${file.estimated_dev_hours || 0}h</td>
-                            <td class="score-cell ${getScoreClass(file.difficulty_score)}">${file.difficulty_score || 0}/10</td>
-                            <td>${file.developer_level || 'N/A'}</td>
-                            <td class="score-cell ${getScoreClass(file.pattern_score)}">${file.pattern_score || 0}/10</td>
-                            <td class="score-cell ${getScoreClass(file.optimization_score)}">${file.optimization_score || 0}/10</td>
-                            <td class="score-cell ${getScoreClass(file.best_practices_score)}">${file.best_practices_score || 0}/10</td>
-                            <td>${file.tech_stack_identification || '분석 중...'}</td>
-                            <td>${file.language || (file.tech_stack && file.tech_stack.length > 0 ? file.tech_stack.join(', ') : 'N/A')}</td>
-                        </tr>
-                    `;
-                });
-                
-                html += `
-                            </tbody>
-                        </table>
-                    </div>
-                `;
+                html += renderPaginatedTable(data.files);
             } else {
                 html += '<div class="loading">분석 결과가 없습니다.</div>';
             }
@@ -925,6 +886,104 @@
             setTimeout(() => renderNetworkGraph(), 100);
             
             return html;
+        }
+
+        function renderPaginatedTable(files) {
+            const totalPages = Math.ceil(files.length / itemsPerPage);
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const currentFiles = files.slice(startIndex, endIndex);
+
+            let html = `
+                <div class="table-container">
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>파일명</th>
+                                <th>총 라인</th>
+                                <th>코드 라인</th>
+                                <th>주석 비율</th>
+                                <th>복잡도</th>
+                                <th>유지보수성</th>
+                                <th>예상 시간</th>
+                                <th>난이도</th>
+                                <th>개발자 수준</th>
+                                <th>패턴 사용</th>
+                                <th>최적화</th>
+                                <th>모범사례</th>
+                                <th>기술 스택 식별</th>
+                                <th>언어</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            currentFiles.forEach(file => {
+                const fileName = (file.file_path || '').split('/').pop() || 'Unknown';
+                const getScoreClass = (score, max = 10) => {
+                    const ratio = (score || 0) / max;
+                    if (ratio >= 0.7) return 'score-high';
+                    if (ratio >= 0.4) return 'score-medium';
+                    return 'score-low';
+                };
+                
+                html += `
+                    <tr>
+                        <td><strong>${fileName}</strong></td>
+                        <td>${file.total_lines || 0}</td>
+                        <td>${file.code_lines || 0}</td>
+                        <td>${file.code_comment_ratio || '0%'}</td>
+                        <td class="score-cell ${getScoreClass(file.cyclomatic_complexity, 50)}">${file.cyclomatic_complexity || 0}</td>
+                        <td class="score-cell ${getScoreClass(file.maintainability_index, 100)}">${file.maintainability_index || 0}/100</td>
+                        <td>${file.estimated_dev_hours || 0}h</td>
+                        <td class="score-cell ${getScoreClass(file.difficulty_score)}">${file.difficulty_score || 0}/10</td>
+                        <td>${file.developer_level || 'N/A'}</td>
+                        <td class="score-cell ${getScoreClass(file.pattern_score)}">${file.pattern_score || 0}/10</td>
+                        <td class="score-cell ${getScoreClass(file.optimization_score)}">${file.optimization_score || 0}/10</td>
+                        <td class="score-cell ${getScoreClass(file.best_practices_score)}">${file.best_practices_score || 0}/10</td>
+                        <td>${file.tech_stack_identification || '분석 중...'}</td>
+                        <td>${file.language || (file.tech_stack && file.tech_stack.length > 0 ? file.tech_stack.join(', ') : 'N/A')}</td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            if (totalPages > 1) {
+                html += `
+                    <div class="pagination">
+                        <button onclick="changePage(1)" ${currentPage === 1 ? 'disabled' : ''}>처음</button>
+                        <button onclick="changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>이전</button>
+                `;
+                
+                for (let i = Math.max(1, currentPage - 2); i <= Math.min(totalPages, currentPage + 2); i++) {
+                    html += `<button onclick="changePage(${i})" class="${i === currentPage ? 'active' : ''}">${i}</button>`;
+                }
+                
+                html += `
+                        <button onclick="changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>다음</button>
+                        <button onclick="changePage(${totalPages})" ${currentPage === totalPages ? 'disabled' : ''}>마지막</button>
+                    </div>
+                `;
+            }
+
+            return html;
+        }
+
+        function changePage(page) {
+            currentPage = page;
+            if (activeRepo && activeRepo.analysisData) {
+                renderRepositoryWithAnalysis();
+            } else {
+                const resultsDiv = document.getElementById('results');
+                if (resultsDiv && resultsDiv.innerHTML) {
+                    location.reload();
+                }
+            }
         }
 
     </script>
