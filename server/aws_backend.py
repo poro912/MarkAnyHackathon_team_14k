@@ -81,6 +81,50 @@ async def serve_advanced_utility_extractor():
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     return response
 
+@app.delete("/clear_test_data")
+async def clear_test_data():
+    """테스트 데이터 삭제"""
+    try:
+        table = dynamodb.Table(EXTRACTION_HISTORY_TABLE)
+        
+        # 테스트.cpp 파일의 모든 항목 스캔
+        response = table.scan(
+            FilterExpression="contains(#file, :test_file)",
+            ExpressionAttributeNames={'#file': 'file'},
+            ExpressionAttributeValues={':test_file': '테스트.cpp'}
+        )
+        
+        # 각 항목 삭제
+        for item in response['Items']:
+            table.delete_item(Key={'id': item['id']})
+        
+        return {"success": True, "deleted_count": len(response['Items'])}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/save_extraction")
+async def save_extraction(function_data: dict):
+    """추출된 함수를 히스토리에 저장"""
+    try:
+        # 한국 시간으로 변환
+        from datetime import datetime, timezone, timedelta
+        kst = timezone(timedelta(hours=9))
+        current_time = datetime.now(kst)
+        
+        function_data['timestamp'] = current_time.isoformat()
+        function_data['extracted_at'] = current_time.strftime('%Y-%m-%d %H:%M:%S')
+        
+        # DynamoDB에 저장
+        table = dynamodb.Table(EXTRACTION_HISTORY_TABLE)
+        function_data['id'] = str(uuid.uuid4())
+        
+        table.put_item(Item=function_data)
+        
+        return {"success": True, "message": "추출 히스토리에 저장되었습니다"}
+    except Exception as e:
+        print(f"추출 히스토리 저장 오류: {e}")
+        return {"success": False, "error": str(e)}
+
 @app.post("/analyze")
 async def analyze_code(files: List[UploadFile] = File(...)):
     extractor = FunctionExtractor()
@@ -156,6 +200,38 @@ async def analyze_code(files: List[UploadFile] = File(...)):
         
         # 상태 업데이트
         app.state.analyzed_utilities = all_utilities
+        
+        # 추출 히스토리에 새로 추출된 함수들 저장
+        if new_utilities:
+            try:
+                dynamodb = get_dynamodb_client()
+                table = dynamodb.Table(DYNAMODB_TABLE_NAME)
+                
+                from datetime import timezone, timedelta
+                # 한국 시간대 설정
+                kst = timezone(timedelta(hours=9))
+                
+                # 각 함수를 개별적으로 저장
+                for utility in new_utilities:
+                    function_id = str(uuid.uuid4())
+                    table.put_item(
+                        Item={
+                            'id': function_id,
+                            'type': 'function',  # 함수 타입 구분
+                            'name': utility.get('name', 'Unknown'),
+                            'description': utility.get('description', ''),
+                            'purpose': utility.get('purpose', ''),
+                            'parameters': utility.get('parameters', ''),
+                            'return_type': utility.get('return_type', ''),
+                            'code': utility.get('code', ''),
+                            'timestamp': datetime.now(kst).isoformat(),
+                            'build_id': 'extracted_only',  # 추출만 된 함수 표시
+                            'comment': f"{utility.get('source_file', 'Unknown')}에서 추출됨"
+                        }
+                    )
+                print(f"✅ {len(new_utilities)}개 함수가 추출 히스토리에 저장됨")
+            except Exception as e:
+                print(f"추출 히스토리 저장 실패: {e}")
         
         print(f"📊 전체 함수: {len(all_utilities)}개 (기존: {len(existing_utilities)}개, 새로 추가: {len(new_utilities)}개)")
         
