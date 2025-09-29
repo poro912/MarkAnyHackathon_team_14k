@@ -1,0 +1,72 @@
+/home/ec2-user/MarkAnyHackathon_team_14k/server/aws_backend.py:984: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+INFO:     Started server process [10080]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('0.0.0.0', 80): address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+AWS 초기화 실패 (무시): Unable to locate credentials
+🚀 AWS/Linux 환경에서 서버 시작
+☁️ 풀 기능 활성화
+🌐 브라우저에서 http://localhost 접속하세요
+✅ 문서 생성 AI 초기화 완료
+/home/ec2-user/MarkAnyHackathon_team_14k/server/aws_backend.py:1060: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+INFO:     Started server process [12226]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('0.0.0.0', 80): address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+AWS 초기화 실패 (무시): Unable to locate credentials
+🚀 AWS/Linux 환경에서 서버 시작
+☁️ 풀 기능 활성화
+🌐 브라우저에서 http://localhost 접속하세요
+✅ 문서 생성 AI 초기화 완료
+/home/ec2-user/MarkAnyHackathon_team_14k/server/aws_backend.py:1060: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+INFO:     Started server process [15131]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('0.0.0.0', 80): address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+AWS 초기화 실패 (무시): Unable to locate credentials
+🚀 AWS/Linux 환경에서 서버 시작
+☁️ 풀 기능 활성화
+🌐 브라우저에서 http://localhost 접속하세요
+✅ 문서 생성 AI 초기화 완료
+/home/ec2-user/MarkAnyHackathon_team_14k/server/aws_backend.py:1096: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+INFO:     Started server process [17415]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('0.0.0.0', 80): address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+AWS 초기화 실패 (무시): Unable to locate credentials
+🚀 AWS/Linux 환경에서 서버 시작
+☁️ 풀 기능 활성화
+🌐 브라우저에서 http://localhost 접속하세요
+✅ 문서 생성 AI 초기화 완료
