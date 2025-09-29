@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from decimal import Decimal
 from function_extractor import FunctionExtractor
 from agents.agent_wrapper import AgentWrapper
+from code_analyzer import CodeAnalyzer
 
 def decimal_default(obj):
     """DynamoDB Decimal 타입을 JSON 직렬화 가능하게 변환"""
@@ -44,10 +45,12 @@ app.add_middleware(
 try:
     init_aws_resources()
     agent_wrapper = AgentWrapper()
+    code_analyzer = CodeAnalyzer()
     print("Agent 래퍼 초기화 완료")
 except Exception as e:
     print(f"AWS 초기화 실패 (무시): {e}")
     agent_wrapper = None
+    code_analyzer = CodeAnalyzer()
 
 class BuildConfig(BaseModel):
     architecture: str
@@ -887,6 +890,11 @@ async def serve_project_evaluation():
     """프로젝트 평가 페이지 제공"""
     return FileResponse(os.path.join(CURRENT_DIR, "project_evaluation.html"))
 
+@app.get("/project_analyzer.html")
+async def serve_project_analyzer():
+    """프로젝트 분석기 페이지 제공"""
+    return FileResponse(os.path.join(CURRENT_DIR, "project_analyzer.html"))
+
 @app.get("/download/{build_id}/docs")
 async def download_docs(build_id: str):
     """문서 파일 다운로드"""
@@ -907,6 +915,34 @@ async def download_docs(build_id: str):
     except Exception as e:
         print(f"문서 다운로드 오류: {e}")
         raise HTTPException(status_code=404, detail="문서 파일을 찾을 수 없습니다")
+
+@app.post("/analyze_project")
+async def analyze_project(files: List[UploadFile] = File(...)):
+    """프로젝트 코드 분석"""
+    try:
+        temp_dir = tempfile.mkdtemp()
+        
+        # 파일들을 임시 디렉토리에 저장
+        for file in files:
+            # 파일명에서 디렉토리 구조 제거
+            safe_filename = os.path.basename(file.filename) if file.filename else "unknown"
+            file_path = os.path.join(temp_dir, safe_filename)
+            
+            with open(file_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+        
+        # 프로젝트 분석 수행
+        analysis_result = code_analyzer.analyze_project(temp_dir)
+        
+        # 임시 디렉토리 정리
+        import shutil
+        shutil.rmtree(temp_dir)
+        
+        return analysis_result
+        
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.post('/upload_to_history')
 async def upload_to_history(request: dict):
