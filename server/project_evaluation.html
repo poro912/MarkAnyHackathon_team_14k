@@ -421,6 +421,8 @@
                 setTimeout(() => {
                     progressDiv.style.display = 'none';
                     displayResults(data);
+                    // 파일 입력 초기화하여 같은 파일 재선택 가능하게 함
+                    fileInput.value = "";
                 }, 500);
 
             } catch (error) {
@@ -449,6 +451,8 @@
                             <div class="metric"><strong>예상 개발 시간</strong><br>${data.summary.total_estimated_hours}시간</div>
                             <div class="metric"><strong>최고 난이도</strong><br>${data.summary.max_difficulty}/10</div>
                         </div>
+                        ${data.summary.result ? `<div style="margin-top: 20px; padding: 15px; background: #e8f4fd; border-radius: 8px;"><h3>🎯 최종 분석</h3><p><strong>${data.summary.result}</strong></p><p>${data.summary.desc}</p></div>` : ""}
+                        </div>
                     </div>
                 `;
             }
@@ -472,7 +476,8 @@
                                     <th>패턴 사용</th>
                                     <th>최적화</th>
                                     <th>모범사례</th>
-                                    <th>기술 스택</th>
+                                    <th>기술 스택 식별</th>
+                                    <th>언어</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -501,7 +506,8 @@
                             <td class="score-cell ${getScoreClass(file.pattern_score)}">${file.pattern_score}/10</td>
                             <td class="score-cell ${getScoreClass(file.optimization_score)}">${file.optimization_score}/10</td>
                             <td class="score-cell ${getScoreClass(file.best_practices_score)}">${file.best_practices_score}/10</td>
-                            <td>${file.tech_stack.join(', ') || 'N/A'}</td>
+                            <td>${file.tech_stack_identification || '분석 중...'}</td>
+                            <td>${file.language || file.tech_stack?.join(', ') || 'N/A'}</td>
                         </tr>
                     `;
                 });
@@ -681,6 +687,8 @@
                             <div class="metric"><strong>예상 개발 시간</strong><br>${data.summary.total_estimated_hours || 0}시간</div>
                             <div class="metric"><strong>최고 난이도</strong><br>${data.summary.max_difficulty || 0}/10</div>
                         </div>
+                        ${data.summary.result ? `<div style="margin-top: 20px; padding: 15px; background: #e8f4fd; border-radius: 8px;"><h3>🎯 최종 분석</h3><p><strong>${data.summary.result}</strong></p><p>${data.summary.desc}</p></div>` : ""}
+                        </div>
                     </div>
                 `;
             }
@@ -704,7 +712,8 @@
                                     <th>패턴 사용</th>
                                     <th>최적화</th>
                                     <th>모범사례</th>
-                                    <th>기술 스택</th>
+                                    <th>기술 스택 식별</th>
+                                    <th>언어</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -733,7 +742,8 @@
                             <td class="score-cell ${getScoreClass(file.pattern_score)}">${file.pattern_score || 0}/10</td>
                             <td class="score-cell ${getScoreClass(file.optimization_score)}">${file.optimization_score || 0}/10</td>
                             <td class="score-cell ${getScoreClass(file.best_practices_score)}">${file.best_practices_score || 0}/10</td>
-                            <td>${(file.tech_stack && file.tech_stack.length > 0) ? file.tech_stack.join(', ') : 'N/A'}</td>
+                            <td>${file.tech_stack_identification || '분석 중...'}</td>
+                            <td>${file.language || (file.tech_stack && file.tech_stack.length > 0 ? file.tech_stack.join(', ') : 'N/A')}</td>
                         </tr>
                     `;
                 });

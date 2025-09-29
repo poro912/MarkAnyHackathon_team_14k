@@ -1,12 +1,14 @@
 import os
 import re
 import json
+import time
 from pathlib import Path
 from aws_config import get_bedrock_client
 
 class CodeAnalyzer:
     def __init__(self):
         self.supported_extensions = {'.py', '.js', '.java', '.cpp', '.c', '.cs', '.php', '.rb', '.go', '.ts'}
+        self.language_map = {'.py': 'Python', '.js': 'JavaScript', '.cpp': 'C++', '.java': 'Java', '.c': 'C', '.cs': 'C#', '.php': 'PHP', '.rb': 'Ruby', '.go': 'Go', '.ts': 'TypeScript'}
         try:
             self.bedrock_client = get_bedrock_client()
             self.use_ai = True
@@ -14,6 +16,61 @@ class CodeAnalyzer:
             self.bedrock_client = None
             self.use_ai = False
     
+
+    def _analyze_summary(self, results):
+        """파일 분석 결과를 종합하여 최종 분석 수행"""
+        if not self.use_ai or not results:
+            return {"result": "분석 불가", "desc": "AI 분석을 사용할 수 없습니다."}
+        
+        # 분석 데이터 수집
+        avg_difficulty = sum(r['difficulty_score'] for r in results) / len(results)
+        total_hours = sum(r['estimated_dev_hours'] for r in results)
+        avg_complexity = sum(r['cyclomatic_complexity'] for r in results) / len(results)
+        developer_levels = [str(r['developer_level']) for r in results]
+        tech_stacks = [str(r.get('tech_stack_identification', '')) for r in results if r.get('tech_stack_identification')]
+        
+        prompt = f"""다음 프로젝트 분석 결과를 종합하여 최종 평가해주세요:
+
+- 평균 난이도: {avg_difficulty:.1f}/10
+- 총 예상 개발시간: {total_hours:.1f}시간
+- 평균 복잡도: {avg_complexity:.1f}
+- 개발자 수준: {', '.join(developer_levels)}
+- 기술 스택: {', '.join(tech_stacks)}
+
+다음 중 하나로 응답해주세요:
+- 신입사원도 충분히 개발 가능함
+- 1~2년차 개발자에 적합함
+- 3~5년차 개발자에 적합함
+- 5~10년차 개발자에 적합함
+- 10년차 이상 개발자에 적합함
+
+JSON 형태로 응답:
+{{"result": "선택된 결과", "desc": "분석 근거 설명"}}"""
+
+        try:
+            response = self.bedrock_client.invoke_model(
+                modelId="anthropic.claude-3-haiku-20240307-v1:0",
+                body=json.dumps({
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 1000,
+                    "messages": [{"role": "user", "content": prompt}]
+                })
+            )
+            
+            result = json.loads(response['body'].read())
+            ai_response = result['content'][0]['text']
+            
+            # JSON 추출
+            json_start = ai_response.find('{')
+            json_end = ai_response.rfind('}') + 1
+            if json_start != -1 and json_end != -1:
+                return json.loads(ai_response[json_start:json_end])
+            else:
+                return {"result": "분석 실패", "desc": "응답 파싱 오류"}
+                
+        except Exception as e:
+            return {"result": "분석 오류", "desc": f"오류: {str(e)}"}
+
     def _analyze_with_ai(self, content: str, file_path: str):
         """AI를 사용한 코드 분석"""
         if not self.use_ai:
@@ -36,12 +93,14 @@ class CodeAnalyzer:
 - pattern_score: 패턴 사용 점수 (1-10)
 - optimization_score: 최적화 점수 (1-10)
 - best_practices_score: 모범사례 준수도 (1-10)
+- tech_stack_identification: 사용된 기술 스택 (프레임워크, 라이브러리 등을 간단히 나열)
 
 JSON 형태로만 응답해주세요:"""
 
         try:
             response = self.bedrock_client.invoke_model(
-                modelId='anthropic.claude-3-5-sonnet-20240620-v1:0',
+                #modelId='anthropic.claude-3-5-sonnet-20240620-v1:0',
+                modelId='anthropic.claude-3-haiku-20240307-v1:0',
                 body=json.dumps({
                     "anthropic_version": "bedrock-2023-05-31",
                     "max_tokens": 1000,
@@ -57,6 +116,7 @@ JSON 형태로만 응답해주세요:"""
             json_end = ai_response.rfind('}') + 1
             if json_start != -1 and json_end != -1:
                 ai_analysis = json.loads(ai_response[json_start:json_end])
+                print(f"AI 분석 성공: {file_path}")
                 return ai_analysis
             
         except Exception as e:
@@ -118,6 +178,7 @@ JSON 형태로만 응답해주세요:"""
             'pattern_score': ai_analysis['pattern_score'],
             'optimization_score': ai_analysis['optimization_score'],
             'best_practices_score': ai_analysis['best_practices_score'],
+            'tech_stack_identification': ai_analysis.get('tech_stack_identification', 'AI 분석 불가'),            'language': self.language_map.get(ext, 'Unknown'),
             'tech_stack': tech_stack
         }
     
@@ -127,6 +188,10 @@ JSON 형태로만 응답해주세요:"""
             for file in files:
                 if Path(file).suffix in self.supported_extensions:
                     results.append(self.analyze_file(os.path.join(root, file)))
+                # AI rate limit 고려, 실제 값이 얼마인지 확인후 처리 필요
+                # 여기서는 매 요청마다 2초 대기
+                if self.use_ai:
+                    time.sleep(2)
         
         if results:
             summary = {
@@ -136,6 +201,10 @@ JSON 형태로만 응답해주세요:"""
                 'total_estimated_hours': round(sum(r['estimated_dev_hours'] for r in results), 1),
                 'max_difficulty': max(r['difficulty_score'] for r in results)
             }
+            
+            # 최종 분석 수행
+            final_analysis = self._analyze_summary(results)
+            summary.update(final_analysis)
         else:
             summary = {}
         
