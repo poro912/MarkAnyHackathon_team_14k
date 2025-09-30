@@ -1515,6 +1515,7 @@ async def analyze_github_repo(request: GitRepoRequest):
             try:
                 import shutil
                 shutil.rmtree(repo_dir, onerror=force_remove_readonly)
+                print(f"🗑️ 기존 폴더 삭제: {repo_dir}")
             except Exception as e:
                 print(f"기존 폴더 삭제 실패: {e}")
         
@@ -1527,8 +1528,14 @@ async def analyze_github_repo(request: GitRepoRequest):
         except Exception as e:
             return {"error": f"레포지터리 클론 실패: {str(e)}"}
         
-        # 프로젝트 분석
-        return analyze_project_directory(repo_dir)
+        # 프로젝트 분석 (항상 새로 분석)
+        result = analyze_project_directory(repo_dir)
+        
+        # 결과에 타임스탬프 추가하여 캐시 방지
+        result['analysis_timestamp'] = datetime.now().isoformat()
+        result['repo_id'] = request.repo_id
+        
+        return result
             
     except Exception as e:
         return {"error": f"분석 실패: {str(e)}"}
@@ -1674,7 +1681,11 @@ def analyze_file(file_path, content, extractor):
         else:
             clean_path = relative_path
         
+        # 고유 ID 추가하여 중복 방지
+        file_id = f"{clean_path}_{hash(content)}_{datetime.now().timestamp()}"
+        
         return {
+            'file_id': file_id,
             'file_path': clean_path,
             'original_file_path': file_path,
             'total_lines': total_lines,
@@ -1689,7 +1700,8 @@ def analyze_file(file_path, content, extractor):
             'optimization_score': min(10, max(1, 7 + (comment_lines // 10))),
             'best_practices_score': min(10, max(1, 6 + len(tech_stack))),
             'tech_stack': tech_stack,
-            'language': tech_stack[0] if tech_stack else 'Unknown'
+            'language': tech_stack[0] if tech_stack else 'Unknown',
+            'tech_stack_identification': ', '.join(tech_stack) if tech_stack else 'Unknown'
         }
     except Exception as e:
         print(f"파일 분석 오류: {e}")
