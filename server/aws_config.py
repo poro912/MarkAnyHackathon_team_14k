@@ -22,13 +22,16 @@ def get_bedrock_client():
 def create_s3_bucket():
     s3 = get_s3_client()
     try:
-        s3.create_bucket(
-            Bucket=S3_BUCKET_NAME,
-            CreateBucketConfiguration={'LocationConstraint': AWS_REGION}
-        )
+        if AWS_REGION == 'us-east-1':
+            s3.create_bucket(Bucket=S3_BUCKET_NAME)
+        else:
+            s3.create_bucket(
+                Bucket=S3_BUCKET_NAME,
+                CreateBucketConfiguration={'LocationConstraint': AWS_REGION}
+            )
         print(f"S3 버킷 '{S3_BUCKET_NAME}' 생성 완료")
     except ClientError as e:
-        if e.response['Error']['Code'] == 'BucketAlreadyExists':
+        if e.response['Error']['Code'] in ['BucketAlreadyExists', 'BucketAlreadyOwnedByYou']:
             print(f"S3 버킷 '{S3_BUCKET_NAME}' 이미 존재")
         else:
             print(f"S3 버킷 생성 실패: {e}")

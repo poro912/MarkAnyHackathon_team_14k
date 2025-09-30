@@ -59,6 +59,14 @@ except Exception as e:
     agent_wrapper = None
     code_analyzer = CodeAnalyzer()
 
+# 로컬 저장소 설정 (AWS 환경용)
+LOCAL_STORAGE_DIR = os.path.join(CURRENT_DIR, "local_storage")
+LOCAL_REPOS_DIR = os.path.join(LOCAL_STORAGE_DIR, "repositories")
+LOCAL_BUILDS_DIR = os.path.join(LOCAL_STORAGE_DIR, "builds")
+os.makedirs(LOCAL_REPOS_DIR, exist_ok=True)
+os.makedirs(LOCAL_BUILDS_DIR, exist_ok=True)
+os.makedirs(LOCAL_STORAGE_DIR, exist_ok=True)
+
 class BuildConfig(BaseModel):
     architecture: str
     runtime: str
@@ -66,6 +74,40 @@ class BuildConfig(BaseModel):
     library_type: str
     utilities: List[dict]  # 실제 함수 데이터
     comment: str = ""
+
+class GitRepoRequest(BaseModel):
+    repo_url: str
+    repo_id: str
+
+class CommitAnalysisRequest(BaseModel):
+    repo_id: str
+    commit_sha: str
+    branch_name: str = ""
+
+class FileContentRequest(BaseModel):
+    file_path: str
+    repo_id: str = None
+
+class CommitFileDiffRequest(BaseModel):
+    file_path: str
+    repo_id: str = None
+    commit_sha: str = None
+
+class FeedbackRequest(BaseModel):
+    file_name: str
+    file_data: dict
+    file_content: str = ""
+    user_difficulty: int
+    ai_difficulty: int
+    feedback_reason: str
+
+def force_remove_readonly(func, path, exc):
+    """읽기 전용 파일 강제 삭제"""
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception:
+        pass
 
 @app.get("/test.html")
 async def serve_test():
@@ -95,7 +137,7 @@ async def serve_advanced_utility_extractor():
 async def clear_test_data():
     """테스트 데이터 삭제"""
     try:
-        table = dynamodb.Table(EXTRACTION_HISTORY_TABLE)
+        table = dynamodb.Table(DYNAMODB_TABLE_NAME)
         
         # 테스트.cpp 파일의 모든 항목 스캔
         response = table.scan(
@@ -125,7 +167,7 @@ async def save_extraction(function_data: dict):
         function_data['extracted_at'] = current_time.strftime('%Y-%m-%d %H:%M:%S')
         
         # DynamoDB에 저장
-        table = dynamodb.Table(EXTRACTION_HISTORY_TABLE)
+        table = dynamodb.Table(DYNAMODB_TABLE_NAME)
         function_data['id'] = str(uuid.uuid4())
         
         table.put_item(Item=function_data)
@@ -1449,39 +1491,7 @@ async def get_github_commits(owner: str, repo: str, per_page: int = 50):
     except Exception as e:
         return [{"sha": "abc123", "commit": {"message": "Initial commit"}}]
 
-# 로컬 저장소 설정 (AWS 환경용)
-LOCAL_STORAGE_DIR = os.path.join(CURRENT_DIR, "local_storage")
-LOCAL_REPOS_DIR = os.path.join(LOCAL_STORAGE_DIR, "repositories")
-LOCAL_BUILDS_DIR = os.path.join(LOCAL_STORAGE_DIR, "builds")
-os.makedirs(LOCAL_REPOS_DIR, exist_ok=True)
-os.makedirs(LOCAL_BUILDS_DIR, exist_ok=True)
-os.makedirs(LOCAL_STORAGE_DIR, exist_ok=True)
 
-class GitRepoRequest(BaseModel):
-    repo_url: str
-    repo_id: str
-
-class CommitAnalysisRequest(BaseModel):
-    repo_id: str
-    commit_sha: str
-    branch_name: str = ""
-
-class FileContentRequest(BaseModel):
-    file_path: str
-    repo_id: str = None
-
-class CommitFileDiffRequest(BaseModel):
-    file_path: str
-    repo_id: str = None
-    commit_sha: str = None
-
-class FeedbackRequest(BaseModel):
-    file_name: str
-    file_data: dict
-    file_content: str = ""
-    user_difficulty: int
-    ai_difficulty: int
-    feedback_reason: str
 
 def force_remove_readonly(func, path, exc):
     """읽기 전용 파일 강제 삭제"""
