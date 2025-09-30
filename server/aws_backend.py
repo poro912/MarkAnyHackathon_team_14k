@@ -971,6 +971,64 @@ async def serve_project_analyzer():
     """프로젝트 분석기 페이지 제공"""
     return FileResponse(os.path.join(CURRENT_DIR, "project_analyzer.html"))
 
+@app.get("/github_analyzer.html")
+async def serve_github_analyzer():
+    """GitHub 분석기 페이지 제공"""
+    return FileResponse(os.path.join(CURRENT_DIR, "github_analyzer.html"))
+
+@app.get("/api/github/repos/{owner}/{repo}")
+async def get_github_repo(owner: str, repo: str):
+    """GitHub 저장소 정보 조회"""
+    return {"message": "GitHub API 연동 필요", "owner": owner, "repo": repo}
+
+@app.get("/api/github/repos/{owner}/{repo}/branches")
+async def get_github_branches(owner: str, repo: str):
+    """GitHub 저장소 브랜치 목록 조회"""
+    return [{"name": "main", "commit": {"sha": "abc123"}}]
+
+@app.get("/api/github/repos/{owner}/{repo}/commits")
+async def get_github_commits(owner: str, repo: str, per_page: int = 50):
+    """GitHub 저장소 커밋 목록 조회"""
+    return [{"sha": "abc123", "commit": {"message": "Initial commit"}}]
+
+@app.post("/analyze_github_repo")
+async def analyze_github_repo(request: dict):
+    """GitHub 저장소 분석"""
+    try:
+        repo_url = request.get('repo_url', '')
+        if not repo_url:
+            return {"error": "저장소 URL이 필요합니다"}
+        
+        # Git clone 시도
+        import subprocess
+        import tempfile
+        import shutil
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                # Git clone 실행
+                result = subprocess.run(
+                    ["git", "clone", repo_url, temp_dir],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                
+                if result.returncode != 0:
+                    return {"error": f"Git clone 실패: {result.stderr}"}
+                
+                # 저장소 분석
+                analysis_result = code_analyzer.analyze_project(temp_dir)
+                return {"success": True, "analysis": analysis_result}
+                
+            except subprocess.TimeoutExpired:
+                return {"error": "저장소 클론 시간 초과"}
+            except Exception as e:
+                return {"error": f"분석 중 오류: {str(e)}"}
+                
+    except Exception as e:
+        return {"error": f"요청 처리 중 오류: {str(e)}"}
+
 @app.get("/download/{build_id}/docs")
 async def download_docs(build_id: str):
     """문서 파일 다운로드"""

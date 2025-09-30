@@ -354,6 +354,16 @@
                     })
                 });
                 
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    throw new Error(`서버에서 JSON이 아닌 응답을 반환했습니다: ${text.substring(0, 200)}...`);
+                }
+                
                 const analysisData = await response.json();
                 
                 if (analysisData.error) {
@@ -364,6 +374,7 @@
                 displayCommitAnalysisResults(analysisWindow, analysisData, commit);
                 
             } catch (error) {
+                console.error('커밋 분석 실패:', error);
                 const content = analysisWindow.document.getElementById('analysisContent');
                 content.innerHTML = `<div class="error">커밋 분석 실패: ${error.message}</div>`;
             }
@@ -488,10 +499,21 @@
                     })
                 });
 
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    throw new Error(`서버에서 JSON이 아닌 응답을 반환했습니다: ${text.substring(0, 200)}...`);
+                }
+
                 const data = await response.json();
                 displayResults(data, resultsDiv);
             } catch (error) {
-                resultsDiv.innerHTML = `<div class="error">분석 오류: ${error.message}</div>`;
+                console.error('레포지터리 분석 실패:', error);
+                resultsDiv.innerHTML = `<div class="error">레포지터리 분석 실패: ${error.message}</div>`;
             }
         }
 
@@ -585,7 +607,233 @@
 
             container.innerHTML = html;
         }
+        
+        // 커밋 파일 diff 모달 표시 함수
+        async function showCommitFileDiff(filePath, fileName, fileData) {
+            console.log('showCommitFileDiff 호출됨:', { filePath, fileName });
+            
+            // 새 창 열기
+            const diffWindow = window.open('', '_blank', 'width=1400,height=900,scrollbars=yes');
+            
+            diffWindow.document.write(`
+                <!DOCTYPE html>
+                <html lang="ko">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>파일 변경사항 - ${fileName}</title>
+                    <style>
+                        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background: #f8f9fa; }
+                        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+                        .header { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                        .header h3 { margin: 0 0 15px 0; color: #333; display: flex; justify-content: space-between; align-items: center; }
+                        .close-modal { background: #dc3545; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; }
+                        .close-modal:hover { background: #c82333; }
+                        .analysis-info { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3); }
+                        .analysis-info h4 { margin: 0 0 15px 0; font-size: 18px; font-weight: 600; }
+                        .analysis-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 15px; }
+                        .analysis-item { background: rgba(255, 255, 255, 0.15); padding: 12px; border-radius: 8px; backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); }
+                        .analysis-item strong { display: block; font-size: 12px; opacity: 0.9; margin-bottom: 4px; }
+                        .analysis-value { font-size: 16px; font-weight: 600; }
+                        .feedback-section { background: #fff; border: 2px solid #e9ecef; border-radius: 12px; padding: 20px; margin: 20px 0; }
+                        .feedback-title { color: #495057; margin: 0 0 15px 0; font-size: 16px; font-weight: 600; }
+                        .feedback-input-group { display: flex; gap: 15px; align-items: center; margin-bottom: 15px; }
+                        .difficulty-slider { flex: 1; height: 6px; border-radius: 3px; background: #e9ecef; outline: none; -webkit-appearance: none; }
+                        .difficulty-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: #007bff; cursor: pointer; }
+                        .difficulty-value { min-width: 40px; text-align: center; font-weight: 600; color: #007bff; }
+                        .feedback-textarea { width: 100%; min-height: 80px; padding: 12px; border: 1px solid #ced4da; border-radius: 6px; resize: vertical; font-family: inherit; }
+                        .feedback-btn { background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500; transition: background 0.2s; }
+                        .feedback-btn:hover { background: #218838; }
+                        .feedback-btn:disabled { background: #6c757d; cursor: not-allowed; }
+                        .feedback-response { background: #e8f4fd; border: 1px solid #bee5eb; border-radius: 6px; padding: 15px; margin-top: 15px; display: none; }
+                        .feedback-response.show { display: block; }
+                        .feedback-response h5 { color: #0c5460; margin: 0 0 10px 0; font-size: 14px; font-weight: 600; }
+                        .feedback-response p { color: #0c5460; margin: 0; font-size: 13px; line-height: 1.4; }
+                        .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ffffff; border-radius: 50%; border-top-color: transparent; animation: spin 1s ease-in-out infinite; margin-right: 8px; }
+                        @keyframes spin { to { transform: rotate(360deg); } }
+                        .diff-container { display: flex; gap: 20px; margin-top: 20px; }
+                        .diff-side { flex: 1; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                        .diff-side-header { background: #e9ecef; padding: 12px 20px; font-weight: 600; color: #495057; border-bottom: 1px solid #ddd; }
+                        .diff-side-header.before { background: #fff5f5; color: #dc3545; }
+                        .diff-side-header.after { background: #f0fff4; color: #28a745; }
+                        .diff-code-display { background: #2d3748; color: #e2e8f0; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow: auto; padding: 20px; max-height: 400px; }
+                        .loading { text-align: center; padding: 50px; color: #666; }
+                        .error { color: #dc3545; background: #fff5f5; padding: 15px; border-radius: 6px; margin: 20px 0; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <h3>
+                                📄 ${fileName} - 변경사항 분석
+                                <button class="close-modal" onclick="window.close()">✕ 닫기</button>
+                            </h3>
+                        </div>
+                        <div id="analysisContent">
+                            <div class="loading">파일 변경사항을 분석 중...</div>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `);
+            
+            diffWindow.document.close();
+            
+            try {
+                // 파일 diff 내용 요청
+                const response = await fetch('/get_commit_file_diff', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        file_path: filePath,
+                        repo_id: activeRepo ? activeRepo.id : null,
+                        commit_sha: window.currentCommitSha || null
+                    })
+                });
+                
+                const data = await response.json();
+                const contentDiv = diffWindow.document.querySelector('#analysisContent');
+                
+                if (data.error) {
+                    contentDiv.innerHTML = `<div class="error">파일 변경사항을 불러올 수 없습니다: ${data.error}</div>`;
+                } else {
+                    // 분석 정보와 피드백 섹션을 포함한 가로 배치 UI
+                    contentDiv.innerHTML = `
+                        <div class="analysis-info">
+                            <h4>📊 변경사항 분석 결과</h4>
+                            <div class="analysis-grid">
+                                <div class="analysis-item">
+                                    <strong>추가된 라인</strong>
+                                    <div class="analysis-value">${fileData.code_lines_added || 0}</div>
+                                </div>
+                                <div class="analysis-item">
+                                    <strong>삭제된 라인</strong>
+                                    <div class="analysis-value">${fileData.code_lines_deleted || 0}</div>
+                                </div>
+                                <div class="analysis-item">
+                                    <strong>코드 라인</strong>
+                                    <div class="analysis-value">${fileData.code_lines || 0}</div>
+                                </div>
+                                <div class="analysis-item">
+                                    <strong>주석 라인</strong>
+                                    <div class="analysis-value">${fileData.comment_lines || 0}</div>
+                                </div>
+                                <div class="analysis-item">
+                                    <strong>난이도</strong>
+                                    <div class="analysis-value">${fileData.difficulty_score || 0}/10</div>
+                                </div>
+                                <div class="analysis-item">
+                                    <strong>개발자 수준</strong>
+                                    <div class="analysis-value">${fileData.developer_level || 'N/A'}</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="feedback-section">
+                            <h4 class="feedback-title">📝 변경사항 난이도 피드백</h4>
+                            <div class="feedback-input-group">
+                                <label>난이도:</label>
+                                <input type="range" class="difficulty-slider" id="userDifficulty" min="1" max="10" value="${fileData.difficulty_score || 5}" oninput="updateDifficultyValue(this.value)">
+                                <span class="difficulty-value" id="difficultyValue">${fileData.difficulty_score || 5}/10</span>
+                            </div>
+                            <textarea class="feedback-textarea" id="feedbackReason" placeholder="이 변경사항의 난이도 평가 이유를 입력하세요..."></textarea>
+                            <button class="feedback-btn" id="feedbackBtn" onclick="submitCommitFeedback('${fileName}', '${filePath}')">피드백 전송</button>
+                            <div class="feedback-response" id="feedbackResponse">
+                                <h5>🤖 AI 응답</h5>
+                                <p id="feedbackResponseText"></p>
+                            </div>
+                        </div>
+                        
+                        <div class="diff-container">
+                            <div class="diff-side">
+                                <div class="diff-side-header before">변경 전 (Before)</div>
+                                <div class="diff-code-display">${data.before_content || '파일이 새로 생성되었습니다.'}</div>
+                            </div>
+                            <div class="diff-side">
+                                <div class="diff-side-header after">변경 후 (After)</div>
+                                <div class="diff-code-display">${data.after_content || '파일이 삭제되었습니다.'}</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // 새 창에 필요한 함수들 추가
+                    diffWindow.updateDifficultyValue = function(value) {
+                        diffWindow.document.getElementById('difficultyValue').textContent = value + '/10';
+                    };
+                    
+                    diffWindow.submitCommitFeedback = function(fileName, filePath) {
+                        const userDifficulty = diffWindow.document.getElementById('userDifficulty').value;
+                        const reason = diffWindow.document.getElementById('feedbackReason').value.trim();
+                        const btn = diffWindow.document.getElementById('feedbackBtn');
+                        const responseDiv = diffWindow.document.getElementById('feedbackResponse');
+                        const responseText = diffWindow.document.getElementById('feedbackResponseText');
+                        
+                        if (!reason) {
+                            alert('피드백 이유를 입력해주세요.');
+                            return;
+                        }
+                        
+                        btn.disabled = true;
+                        btn.innerHTML = '<span class="loading-spinner"></span>전송 중...';
+                        responseDiv.classList.remove('show');
+                        
+                        // 부모 창의 activeRepo와 currentCommitSha 사용
+                        const parentActiveRepo = window.opener ? window.opener.activeRepo : null;
+                        const parentCommitSha = window.opener ? window.opener.currentCommitSha : null;
+                        
+                        fetch('/submit_commit_feedback', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                file_name: fileName,
+                                file_path: filePath,
+                                file_data: fileData,
+                                user_difficulty: parseInt(userDifficulty),
+                                ai_difficulty: fileData.difficulty_score || 5,
+                                feedback_reason: reason,
+                                repo_id: parentActiveRepo ? parentActiveRepo.id : null,
+                                commit_sha: parentCommitSha
+                            })
+                        })
+                        .then(response => response.json())
+                        .then(result => {
+                            if (result.error) {
+                                alert('피드백 전송 실패: ' + result.error);
+                                responseDiv.classList.remove('show');
+                            } else {
+                                if (result.llm_response && result.llm_response.message && responseText && responseDiv) {
+                                    responseText.textContent = result.llm_response.message;
+                                    responseDiv.classList.add('show');
+                                }
+                                alert('피드백이 성공적으로 전송되었습니다!');
+                                diffWindow.document.getElementById('feedbackReason').value = '';
+                            }
+                        })
+                        .catch(error => {
+                            alert('피드백 전송 오류: ' + error.message);
+                            responseDiv.classList.remove('show');
+                        })
+                        .finally(() => {
+                            btn.disabled = false;
+                            btn.innerHTML = '피드백 전송';
+                        });
+                    };
+                }
+                
+            } catch (error) {
+                console.error('파일 diff 로드 오류:', error);
+                const contentDiv = diffWindow.document.querySelector('#analysisContent');
+                contentDiv.innerHTML = `<div class="error">파일 diff 로드 실패: ${error.message}</div>`;
+            }
+        }
 
+        // 전역 변수 설정
+        window.currentCommitSha = null;
+        
         document.addEventListener('DOMContentLoaded', function() {
             console.log('GitHub Repository Analyzer 초기화 완료');
         });
