@@ -1,7 +1,9 @@
 #!/bin/bash
+cd "$(dirname "$0")/server"
 
-# 서버 시작 스크립트
-# cd /home/ec2-user/MarkAnyHackathon_team_14k/server
+# 기존 서버 종료
+sudo pkill -f aws_backend
 
 # 서버 시작
-sudo nohup python3 server/local_backend.py &
+echo "Starting AWS backend server..."
+sudo -E ../venv/bin/python -m uvicorn aws_backend:app --host 0.0.0.0 --port 80
