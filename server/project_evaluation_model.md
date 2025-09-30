@@ -1,4 +1,6 @@
 # 프로젝트 평가
+- 적용 모델
+- 
 
 ## 모델
 **COCOMO(COnstructive COst MOdel)**는 Barry W. Boehm이 1981년에 제안한 소프트웨어 개발 비용 산정 모델입니다. '코드 분석 모델'이라기보다는 주로 소프트웨어 프로젝트의 규모(Lines of Code, LOC)를 기반으로 필요한 노력(Person-Months), 개발 기간, 비용 등을 예측하는 데 사용되는 알고리즘적 비용 산정 기법입니다.
