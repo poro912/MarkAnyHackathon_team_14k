@@ -6,7 +6,7 @@ import hashlib
 import pickle
 import hashlib
 from pathlib import Path
-from aws_config import get_bedrock_client
+from strands import Agent
 
 class CodeAnalyzer:
     # 클래스 레벨 캐시 (서버가 켜져 있는 동안 유지)
@@ -17,10 +17,10 @@ class CodeAnalyzer:
         self.supported_extensions = {'.py', '.js', '.java', '.cpp', '.c', '.cs', '.php', '.rb', '.go', '.ts'}
         self.language_map = {'.py': 'Python', '.js': 'JavaScript', '.cpp': 'C++', '.java': 'Java', '.c': 'C', '.cs': 'C#', '.php': 'PHP', '.rb': 'Ruby', '.go': 'Go', '.ts': 'TypeScript'}
         try:
-            self.bedrock_client = get_bedrock_client()
+            self.agent = Agent(model="anthropic.claude-3-haiku-20240307-v1:0")
             self.use_ai = True
         except:
-            self.bedrock_client = None
+            self.agent = None
             self.use_ai = False
         
         # 캐시 파일에서 로드
@@ -107,23 +107,16 @@ JSON 형태로 응답:
 {{"result": "선택된 결과", "desc": "분석 근거 설명"}}"""
 
         try:
-            response = self.bedrock_client.invoke_model(
-                modelId="anthropic.claude-3-haiku-20240307-v1:0",
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 1000,
-                    "messages": [{"role": "user", "content": prompt}]
-                })
-            )
+            ai_response = self.agent(prompt)
             
-            result = json.loads(response['body'].read())
-            ai_response = result['content'][0]['text']
+            # AgentResult를 문자열로 변환
+            response_text = str(ai_response)
             
             # JSON 추출 및 제어 문자 제거
-            json_start = ai_response.find('{')
-            json_end = ai_response.rfind('}') + 1
+            json_start = response_text.find('{')
+            json_end = response_text.rfind('}') + 1
             if json_start != -1 and json_end != -1:
-                json_str = ai_response[json_start:json_end]
+                json_str = response_text[json_start:json_end]
                 # 제어 문자 제거
                 json_str = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', json_str)
                 return json.loads(json_str)
@@ -160,24 +153,16 @@ JSON 형태로 응답:
 JSON 형태로만 응답해주세요:"""
 
         try:
-            response = self.bedrock_client.invoke_model(
-                #modelId='anthropic.claude-3-5-sonnet-20240620-v1:0',
-                modelId='anthropic.claude-3-haiku-20240307-v1:0',
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 1000,
-                    "messages": [{"role": "user", "content": prompt}]
-                })
-            )
+            ai_response = self.agent(prompt)
             
-            result = json.loads(response['body'].read())
-            ai_response = result['content'][0]['text']
+            # AgentResult를 문자열로 변환
+            response_text = str(ai_response)
             
             # JSON 추출
-            json_start = ai_response.find('{')
-            json_end = ai_response.rfind('}') + 1
+            json_start = response_text.find('{')
+            json_end = response_text.rfind('}') + 1
             if json_start != -1 and json_end != -1:
-                ai_analysis = json.loads(ai_response[json_start:json_end])
+                ai_analysis = json.loads(response_text[json_start:json_end])
                 print(f"AI 분석 성공: {file_path}")
                 return ai_analysis
             
@@ -240,7 +225,8 @@ JSON 형태로만 응답해주세요:"""
             'pattern_score': ai_analysis['pattern_score'],
             'optimization_score': ai_analysis['optimization_score'],
             'best_practices_score': ai_analysis['best_practices_score'],
-            'tech_stack_identification': ai_analysis.get('tech_stack_identification', 'AI 분석 불가'),            'language': self.language_map.get(ext, 'Unknown'),
+            'tech_stack_identification': ai_analysis.get('tech_stack_identification', 'AI 분석 불가'),
+            'language': self.language_map.get(ext, 'Unknown'),
             'tech_stack': tech_stack
         }
     
