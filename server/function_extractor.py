@@ -3,10 +3,10 @@ from typing import List, Dict
 
 class FunctionExtractor:
     def __init__(self):
-        # C/C++ 함수 패턴 개선 (네임스페이스, 템플릿, 복잡한 타입 지원)
+        # C/C++ 함수 패턴 (템플릿 제외)
         self.function_patterns = [
             # C++ 함수 (std::string, 네임스페이스 포함)
-            r'^\s*([a-zA-Z_:][a-zA-Z0-9_:<>,\s*&]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)\s*$',
+            r'^\s*(?:inline\s+|static\s+|virtual\s+|explicit\s+)*([a-zA-Z_:][a-zA-Z0-9_:<>,\s*&\[\]]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)\s*(?:const\s*)?(?:override\s*)?$',
             # 기본 C 함수
             r'^\s*([a-zA-Z_][a-zA-Z0-9_*\s]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)\s*$'
         ]
@@ -29,6 +29,13 @@ class FunctionExtractor:
             func_declaration = self._extract_function_declaration(lines, i)
             if func_declaration:
                 func_info, end_line = func_declaration
+                
+                # 템플릿 함수 완전 제외 (DLL 빌드 불가)
+                full_code = '\n'.join(lines[i:end_line+10])  # 앞뒤 코드 확인
+                if 'template' in full_code.lower() or func_info.get('name', '').startswith('template'):
+                    print(f"❌ 템플릿 함수 제외: {func_info.get('name', 'Unknown')} (DLL 빌드 불가)")
+                    i = end_line + 1
+                    continue
                 
                 # main, WinMain 등 엔트리 포인트 제외
                 if func_info['name'] in ['main', 'WinMain', 'DllMain']:
