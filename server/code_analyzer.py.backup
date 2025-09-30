@@ -3,16 +3,13 @@ import re
 import json
 import time
 import hashlib
-import pickle
-import hashlib
 from pathlib import Path
 from aws_config import get_bedrock_client
 
-class CodeAnalyzer:
     # 클래스 레벨 캐시 (서버가 켜져 있는 동안 유지)
     _cache = {}
-    _cache_file = "code_analysis_cache.pkl"
-    
+
+class CodeAnalyzer:
     def __init__(self):
         self.supported_extensions = {'.py', '.js', '.java', '.cpp', '.c', '.cs', '.php', '.rb', '.go', '.ts'}
         self.language_map = {'.py': 'Python', '.js': 'JavaScript', '.cpp': 'C++', '.java': 'Java', '.c': 'C', '.cs': 'C#', '.php': 'PHP', '.rb': 'Ruby', '.go': 'Go', '.ts': 'TypeScript'}
@@ -22,48 +19,24 @@ class CodeAnalyzer:
         except:
             self.bedrock_client = None
             self.use_ai = False
-        
-        # 캐시 파일에서 로드
-        self._load_cache()
-
-    def _load_cache(self):
-        """캐시 파일에서 캐시 로드"""
-        try:
-            if os.path.exists(self._cache_file):
-                with open(self._cache_file, 'rb') as f:
-                    self._cache = pickle.load(f)
-                print(f"📋 캐시 파일에서 {len(self._cache)}개 항목 로드")
-        except Exception as e:
-            print(f"캐시 로드 오류: {e}")
-            self._cache = {}
-    
-    def _save_cache(self):
-        """캐시를 파일에 저장"""
-        try:
-            with open(self._cache_file, 'wb') as f:
-                pickle.dump(self._cache, f)
-        except Exception as e:
-            print(f"캐시 저장 오류: {e}")
     
     def _get_cache_key(self, project_path):
-        """프로젝트 파일 구조와 내용을 기반으로 캐시 키 생성"""
+        """프로젝트 경로를 기반으로 캐시 키 생성"""
+        # 프로젝트 경로와 파일들의 수정 시간을 조합하여 고유 키 생성
         file_info = []
         for root, dirs, files in os.walk(project_path):
             for file in files:
                 if Path(file).suffix in self.supported_extensions:
                     file_path = os.path.join(root, file)
-                    # 상대 경로 사용 (임시 디렉토리 경로 제거)
-                    rel_path = os.path.relpath(file_path, project_path)
                     try:
-                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            content = f.read()
-                        content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
-                        file_info.append(f"{rel_path}:{content_hash}")
+                        mtime = os.path.getmtime(file_path)
+                        file_info.append(f"{file_path}:{mtime}")
                     except:
                         continue
+        
+        # 파일 정보를 정렬하여 일관된 해시 생성
         file_info.sort()
-        # 프로젝트 경로 대신 파일 구조만 사용
-        cache_data = '|'.join(file_info)
+        cache_data = f"{project_path}:{'|'.join(file_info)}"
         return hashlib.md5(cache_data.encode()).hexdigest()
     
     def _get_cached_result(self, cache_key):
@@ -73,7 +46,6 @@ class CodeAnalyzer:
     def _set_cached_result(self, cache_key, result):
         """캐시에 결과 저장"""
         self._cache[cache_key] = result
-        self._save_cache()  # 즉시 파일에 저장
     
 
     def _analyze_summary(self, results):
@@ -119,14 +91,11 @@ JSON 형태로 응답:
             result = json.loads(response['body'].read())
             ai_response = result['content'][0]['text']
             
-            # JSON 추출 및 제어 문자 제거
+            # JSON 추출
             json_start = ai_response.find('{')
             json_end = ai_response.rfind('}') + 1
             if json_start != -1 and json_end != -1:
-                json_str = ai_response[json_start:json_end]
-                # 제어 문자 제거
-                json_str = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', json_str)
-                return json.loads(json_str)
+                return json.loads(ai_response[json_start:json_end])
             else:
                 return {"result": "분석 실패", "desc": "응답 파싱 오류"}
                 
@@ -245,16 +214,6 @@ JSON 형태로만 응답해주세요:"""
         }
     
     def analyze_project(self, project_path: str):
-        # 캐시 키 생성
-        cache_key = self._get_cache_key(project_path)
-        
-        # 캐시에서 결과 조회
-        cached_result = self._get_cached_result(cache_key)
-        if cached_result:
-            print(f"📋 캐시된 분석 결과 사용: {project_path}")
-            return cached_result
-        
-        print(f"🔍 새로운 분석 시작: {project_path}")
         results = []
         for root, dirs, files in os.walk(project_path):
             for file in files:
@@ -280,10 +239,4 @@ JSON 형태로만 응답해주세요:"""
         else:
             summary = {}
         
-        result = {'files': results, 'summary': summary}
-        
-        # 결과를 캐시에 저장
-        self._set_cached_result(cache_key, result)
-        print(f"💾 분석 결과 캐시 저장 완료: {project_path}")
-        
-        return result
+        return {'files': results, 'summary': summary}
