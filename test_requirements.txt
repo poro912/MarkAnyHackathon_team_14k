@@ -1,0 +1,8 @@
+# 테스트 실행을 위한 추가 패키지
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+httpx>=0.24.0
+fastapi[all]>=0.100.0
+
+# 기존 프로젝트 의존성은 requirements.txt 참조
