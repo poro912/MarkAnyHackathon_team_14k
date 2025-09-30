@@ -4,6 +4,8 @@
 server/local_storage/repositories/*
 
 ### Python ###
+aws_credentials.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
