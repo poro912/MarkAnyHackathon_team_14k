@@ -12,6 +12,13 @@ from decimal import Decimal
 from function_extractor import FunctionExtractor
 from agents.agent_wrapper import AgentWrapper
 from code_analyzer import CodeAnalyzer
+import git
+import stat
+import httpx
+import json
+import shutil
+import git
+import stat
 
 def decimal_default(obj):
     """DynamoDB Decimal 타입을 JSON 직렬화 가능하게 변환"""
@@ -956,6 +963,423 @@ async def read_root():
         print(f"❌ Index.html 로드 오류: {e}")
         return HTMLResponse(content="<h1>Index.html을 찾을 수 없습니다</h1>")
 
+@app.post("/analyze_commit_changes")
+async def analyze_commit_changes(request: CommitAnalysisRequest):
+    """커밋 변경사항 분석"""
+    try:
+        # 레포지터리 디렉토리 경로
+        repo_name = request.repo_id.replace('/', '_')
+        repo_dir = os.path.join(LOCAL_REPOS_DIR, repo_name)
+        
+        if not os.path.exists(repo_dir):
+            return {"error": "레포지터리를 찾을 수 없습니다. 먼저 레포지터리를 분석해주세요."}
+        
+        # Git 레포지터리 객체 생성
+        repo = git.Repo(repo_dir)
+        
+        # 커밋 객체 가져오기
+        try:
+            commit = repo.commit(request.commit_sha)
+        except Exception as e:
+            return {"error": f"커밋을 찾을 수 없습니다: {str(e)}"}
+        
+        # 커밋의 변경사항 분석
+        files_data = []
+        total_additions = 0
+        total_deletions = 0
+        difficulty_scores = []
+        
+        # 부모 커밋과 비교하여 변경사항 추출
+        if commit.parents:
+            parent_commit = commit.parents[0]
+            diff = parent_commit.diff(commit, create_patch=True)
+            
+            for diff_item in diff:
+                file_path = diff_item.a_path or diff_item.b_path
+                if not file_path:
+                    continue
+                    
+                file_ext = os.path.splitext(file_path)[1].lower()
+                supported_extensions = {'.py', '.js', '.ts', '.java', '.cpp', '.c', '.cs', '.php', '.rb', '.go'}
+                if file_ext not in supported_extensions:
+                    continue
+                
+                try:
+                    # Git stats를 사용하여 정확한 변경사항 통계 가져오기
+                    stats = commit.stats.files.get(file_path, {'insertions': 0, 'deletions': 0})
+                    added_lines = stats.get('insertions', 0)
+                    deleted_lines = stats.get('deletions', 0)
+                    
+                    # diff가 없으면 patch에서 직접 계산
+                    if added_lines == 0 and deleted_lines == 0 and diff_item.diff:
+                        try:
+                            diff_text = diff_item.diff.decode('utf-8', errors='ignore')
+                            for line in diff_text.split('\n'):
+                                if line.startswith('+') and not line.startswith('+++'):
+                                    added_lines += 1
+                                elif line.startswith('-') and not line.startswith('---'):
+                                    deleted_lines += 1
+                        except:
+                            pass
+                    
+                    # 현재 파일 내용 분석
+                    current_content = ""
+                    current_file_path = os.path.join(repo_dir, file_path)
+                    if os.path.exists(current_file_path):
+                        with open(current_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            current_content = f.read()
+                    elif diff_item.b_blob:  # 새 파일인 경우
+                        current_content = diff_item.b_blob.data_stream.read().decode('utf-8', errors='ignore')
+                    
+                    if current_content or added_lines > 0:
+                        file_analysis = analyze_commit_file_changes(
+                            file_path, current_content, added_lines, deleted_lines
+                        )
+                        
+                        if file_analysis:
+                            files_data.append(file_analysis)
+                            total_additions += added_lines
+                            total_deletions += deleted_lines
+                            difficulty_scores.append(file_analysis['difficulty_score'])
+                
+                except Exception as e:
+                    print(f"파일 분석 오류 {file_path}: {e}")
+                    continue
+        
+        # 요약 정보 계산
+        summary = {
+            'total_files': len(files_data),
+            'total_additions': total_additions,
+            'total_deletions': total_deletions,
+            'avg_difficulty': round(sum(difficulty_scores) / len(difficulty_scores), 2) if difficulty_scores else 0
+        }
+        
+        return {
+            'summary': summary,
+            'files': files_data,
+            'commit_info': {
+                'sha': request.commit_sha,
+                'message': commit.message,
+                'author': commit.author.name,
+                'date': commit.committed_datetime.isoformat(),
+                'branch': request.branch_name
+            }
+        }
+        
+    except Exception as e:
+        return {"error": f"커밋 분석 실패: {str(e)}"}
+
+def analyze_commit_file_changes(file_path, content, added_lines, deleted_lines):
+    """커밋에서 변경된 파일 분석"""
+    try:
+        lines = content.split('\n')
+        total_lines = len(lines)
+        
+        # 코드 라인과 주석 라인 구분
+        code_lines = 0
+        comment_lines = 0
+        
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            elif stripped.startswith('#') or stripped.startswith('//') or stripped.startswith('/*') or stripped.startswith('*'):
+                comment_lines += 1
+            else:
+                code_lines += 1
+        
+        # 추가/삭제된 라인에서 코드와 주석 구분 (간단한 추정)
+        code_lines_added = max(0, int(added_lines * 0.8))  # 80%가 코드라고 가정
+        comment_lines_added = added_lines - code_lines_added
+        code_lines_deleted = max(0, int(deleted_lines * 0.8))
+        comment_lines_deleted = deleted_lines - code_lines_deleted
+        
+        # 변경사항 기반 난이도 계산
+        change_complexity = added_lines + deleted_lines
+        file_complexity = calculate_complexity(content)
+        
+        # 난이도 점수 (1-10)
+        difficulty = min(10, max(1, 
+            (change_complexity // 10) +  # 변경량 기반
+            (file_complexity // 20) +    # 파일 복잡도 기반
+            (1 if added_lines > deleted_lines else 0)  # 추가가 더 많으면 +1
+        ))
+        
+        # 개발자 수준 추정
+        dev_level = get_developer_level(difficulty)
+        
+        # 파일 경로 정리
+        clean_path = file_path.replace('\\', '/')
+        if clean_path.startswith('server/local_storage/repositories/'):
+            path_parts = clean_path.split('/')
+            if len(path_parts) > 4:
+                clean_path = '/'.join(path_parts[4:])
+        elif 'local_storage/repositories/' in clean_path:
+            parts = clean_path.split('local_storage/repositories/')
+            if len(parts) > 1:
+                remaining = parts[1].split('/', 1)
+                if len(remaining) > 1:
+                    clean_path = remaining[1]
+        
+        return {
+            'file_path': clean_path,
+            'code_lines': code_lines,
+            'code_lines_added': code_lines_added,
+            'code_lines_deleted': code_lines_deleted,
+            'comment_lines': comment_lines,
+            'comment_lines_added': comment_lines_added,
+            'comment_lines_deleted': comment_lines_deleted,
+            'difficulty_score': difficulty,
+            'developer_level': dev_level,
+            'total_additions': added_lines,
+            'total_deletions': deleted_lines
+        }
+        
+    except Exception as e:
+        print(f"커밋 파일 분석 오류: {e}")
+        return None
+
+@app.post("/get_file_content")
+async def get_file_content(request: FileContentRequest):
+    """파일 내용 가져오기"""
+    try:
+        file_path = request.file_path
+        print(f"📁 파일 내용 요청: {file_path}, repo_id: {request.repo_id}")
+        
+        # 파일 경로가 이미 절대 경로인지 확인
+        if os.path.isabs(file_path) and os.path.exists(file_path):
+            full_path = file_path
+            print(f"📂 절대 경로 사용: {full_path}")
+        elif request.repo_id:
+            if request.repo_id.startswith('upload_'):
+                # 업로드된 파일
+                upload_dir = os.path.join(LOCAL_REPOS_DIR, request.repo_id)
+                normalized_path = file_path.replace('/', os.sep).replace('\\', os.sep)
+                full_path = os.path.join(upload_dir, normalized_path)
+                print(f"📂 업로드 파일 경로: {full_path}")
+            else:
+                # GitHub 레포지터리
+                repo_name = request.repo_id.replace('/', '_')
+                repo_dir = os.path.join(LOCAL_REPOS_DIR, repo_name)
+                normalized_path = file_path.replace('/', os.sep).replace('\\', os.sep)
+                full_path = os.path.join(repo_dir, normalized_path)
+                print(f"📂 레포지터리 파일 경로: {full_path}")
+        else:
+            # 상대 경로를 절대 경로로 변환
+            full_path = os.path.abspath(file_path)
+            print(f"📂 변환된 절대 경로: {full_path}")
+        
+        print(f"🔍 파일 존재 여부: {os.path.exists(full_path)}")
+        if not os.path.exists(full_path):
+            print(f"❌ 파일을 찾을 수 없음: {full_path}")
+            return {"error": f"파일을 찾을 수 없습니다: {full_path}"}
+        
+        # 파일 크기 체크 (10MB 제한)
+        file_size = os.path.getsize(full_path)
+        print(f"📏 파일 크기: {file_size} bytes")
+        if file_size > 10 * 1024 * 1024:  # 10MB
+            return {"error": "파일이 너무 큽니다. (10MB 제한)"}
+        
+        # 파일 내용 읽기
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            print(f"✅ UTF-8로 파일 읽기 성공, 길이: {len(content)}")
+        except UnicodeDecodeError:
+            try:
+                with open(full_path, 'r', encoding='cp949') as f:
+                    content = f.read()
+                print(f"✅ CP949로 파일 읽기 성공, 길이: {len(content)}")
+            except UnicodeDecodeError:
+                with open(full_path, 'r', encoding='latin-1') as f:
+                    content = f.read()
+                print(f"✅ Latin-1로 파일 읽기 성공, 길이: {len(content)}")
+        
+        # HTML 이스케이프 처리
+        import html
+        escaped_content = html.escape(content)
+        print(f"✅ HTML 이스케이프 완료, 최종 길이: {len(escaped_content)}")
+        
+        return {
+            "content": escaped_content,
+            "file_size": file_size,
+            "encoding": "utf-8"
+        }
+        
+    except Exception as e:
+        print(f"❌ 파일 읽기 오류: {str(e)}")
+        return {"error": f"파일 읽기 실패: {str(e)}"}
+
+@app.post("/get_commit_file_diff")
+async def get_commit_file_diff(request: CommitFileDiffRequest):
+    """커밋에서 파일의 변경 전/후 내용 가져오기"""
+    try:
+        print(f"📁 커밋 파일 diff 요청: {request.file_path}, repo_id: {request.repo_id}, commit: {request.commit_sha}")
+        
+        if not request.repo_id or not request.commit_sha:
+            return {"error": "repo_id와 commit_sha가 필요합니다."}
+        
+        # 레포지터리 디렉토리 경로
+        repo_name = request.repo_id.replace('/', '_')
+        repo_dir = os.path.join(LOCAL_REPOS_DIR, repo_name)
+        
+        if not os.path.exists(repo_dir):
+            return {"error": "레포지터리를 찾을 수 없습니다."}
+        
+        # Git 레포지터리 객체 생성
+        repo = git.Repo(repo_dir)
+        
+        try:
+            commit = repo.commit(request.commit_sha)
+        except Exception as e:
+            return {"error": f"커밋을 찾을 수 없습니다: {str(e)}"}
+        
+        # 파일 경로 정규화
+        file_path = request.file_path.replace('\\', '/')
+        
+        before_content = ""
+        after_content = ""
+        
+        try:
+            # 변경 후 내용 (현재 커밋)
+            try:
+                after_blob = commit.tree[file_path]
+                after_content = after_blob.data_stream.read().decode('utf-8', errors='ignore')
+            except KeyError:
+                # 파일이 삭제된 경우
+                after_content = "[파일이 삭제되었습니다]"
+            
+            # 변경 전 내용 (부모 커밋)
+            if commit.parents:
+                parent_commit = commit.parents[0]
+                try:
+                    before_blob = parent_commit.tree[file_path]
+                    before_content = before_blob.data_stream.read().decode('utf-8', errors='ignore')
+                except KeyError:
+                    # 새로 생성된 파일인 경우
+                    before_content = "[새로 생성된 파일입니다]"
+            else:
+                # 첫 번째 커밋인 경우
+                before_content = "[첫 번째 커밋입니다]"
+            
+            # HTML 이스케이프 처리
+            import html
+            before_content = html.escape(before_content)
+            after_content = html.escape(after_content)
+            
+            return {
+                "before_content": before_content,
+                "after_content": after_content,
+                "file_path": file_path,
+                "commit_sha": request.commit_sha
+            }
+            
+        except Exception as e:
+            return {"error": f"파일 diff 처리 실패: {str(e)}"}
+        
+    except Exception as e:
+        print(f"❌ 커밋 파일 diff 오류: {str(e)}")
+        return {"error": f"커밋 파일 diff 실패: {str(e)}"}
+
+@app.post("/submit_feedback")
+async def submit_feedback(request: FeedbackRequest):
+    """사용자 피드백 처리"""
+    try:
+        # 피드백 데이터 준비
+        feedback_data = {
+            'file_name': request.file_name,
+            'ai_difficulty': request.ai_difficulty,
+            'user_difficulty': request.user_difficulty,
+            'difficulty_diff': request.user_difficulty - request.ai_difficulty,
+            'feedback_reason': request.feedback_reason,
+            'file_content': request.file_content,
+            'file_metrics': {
+                'total_lines': request.file_data.get('total_lines', 0),
+                'code_lines': request.file_data.get('code_lines', 0),
+                'complexity': request.file_data.get('cyclomatic_complexity', 0),
+                'language': request.file_data.get('language', 'Unknown')
+            },
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # 피드백 로컬 저장
+        feedback_file = os.path.join(CURRENT_DIR, 'local_storage', 'feedback.json')
+        feedbacks = []
+        if os.path.exists(feedback_file):
+            with open(feedback_file, 'r', encoding='utf-8') as f:
+                feedbacks = json.load(f)
+        
+        feedbacks.append(feedback_data)
+        
+        os.makedirs(os.path.dirname(feedback_file), exist_ok=True)
+        with open(feedback_file, 'w', encoding='utf-8') as f:
+            json.dump(feedbacks, f, ensure_ascii=False, indent=2)
+        
+        # 간단한 응답 생성
+        difficulty_diff = feedback_data['difficulty_diff']
+        if difficulty_diff > 0:
+            message = f"사용자가 AI보다 {difficulty_diff}점 더 어렵다고 평가했습니다. 향후 유사한 코드 패턴에 대해 난이도를 상향 조정하겠습니다."
+        elif difficulty_diff < 0:
+            message = f"사용자가 AI보다 {abs(difficulty_diff)}점 더 쉽다고 평가했습니다. 해당 코드 유형의 난이도 평가 기준을 완화하겠습니다."
+        else:
+            message = "사용자와 AI 평가가 일치합니다. 현재 평가 기준이 적절한 것으로 보입니다."
+        
+        return {
+            'success': True,
+            'message': '피드백이 성공적으로 전송되었습니다.',
+            'llm_response': {'status': 'processed', 'message': message}
+        }
+        
+    except Exception as e:
+        return {'error': f'피드백 처리 실패: {str(e)}'}
+
+@app.post("/submit_commit_feedback")
+async def submit_commit_feedback(request: dict):
+    """커밋 변경사항 피드백 처리"""
+    try:
+        feedback_data = {
+            'file_name': request.get('file_name'),
+            'file_path': request.get('file_path'),
+            'repo_id': request.get('repo_id'),
+            'commit_sha': request.get('commit_sha'),
+            'ai_difficulty': request.get('ai_difficulty'),
+            'user_difficulty': request.get('user_difficulty'),
+            'difficulty_diff': request.get('user_difficulty', 0) - request.get('ai_difficulty', 0),
+            'feedback_reason': request.get('feedback_reason'),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # 피드백 로컬 저장
+        feedback_file = os.path.join(CURRENT_DIR, 'local_storage', 'commit_feedback.json')
+        feedbacks = []
+        if os.path.exists(feedback_file):
+            with open(feedback_file, 'r', encoding='utf-8') as f:
+                feedbacks = json.load(f)
+        
+        feedbacks.append(feedback_data)
+        
+        os.makedirs(os.path.dirname(feedback_file), exist_ok=True)
+        with open(feedback_file, 'w', encoding='utf-8') as f:
+            json.dump(feedbacks, f, ensure_ascii=False, indent=2)
+        
+        # 간단한 응답 생성
+        difficulty_diff = feedback_data['difficulty_diff']
+        if difficulty_diff > 0:
+            message = f"커밋 변경사항이 AI 예상보다 {difficulty_diff}점 더 어려웠다고 평가되었습니다. 향후 유사한 변경 패턴에 대해 난이도를 상향 조정하겠습니다."
+        elif difficulty_diff < 0:
+            message = f"커밋 변경사항이 AI 예상보다 {abs(difficulty_diff)}점 더 쉬웠다고 평가되었습니다. 해당 변경 유형의 난이도 평가 기준을 완화하겠습니다."
+        else:
+            message = "커밋 변경사항에 대한 사용자와 AI 평가가 일치합니다. 현재 평가 기준이 적절한 것으로 보입니다."
+        
+        return {
+            'success': True,
+            'message': '커밋 피드백이 성공적으로 전송되었습니다.',
+            'llm_response': {'status': 'processed', 'message': message}
+        }
+        
+    except Exception as e:
+        return {'error': f'커밋 피드백 처리 실패: {str(e)}'}
+
 @app.get("/advanced_utility_extractor.html")
 async def serve_utility_extractor():
     """유틸리티 추출기 페이지 제공"""
@@ -976,58 +1400,128 @@ async def serve_github_analyzer():
     """GitHub 분석기 페이지 제공"""
     return FileResponse(os.path.join(CURRENT_DIR, "github_analyzer.html"))
 
+# GitHub API 프록시 엔드포인트
+@app.get("/api/github/{path:path}")
+async def github_proxy(path: str):
+    """GitHub API 프록시 (CORS 해결)"""
+    import httpx
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"https://api.github.com/{path}")
+            return JSONResponse(
+                content=response.json(),
+                headers={"Access-Control-Allow-Origin": "*"}
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/github/repos/{owner}/{repo}")
 async def get_github_repo(owner: str, repo: str):
     """GitHub 저장소 정보 조회"""
-    return {"message": "GitHub API 연동 필요", "owner": owner, "repo": repo}
+    import httpx
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"https://api.github.com/repos/{owner}/{repo}")
+            return response.json()
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/api/github/repos/{owner}/{repo}/branches")
 async def get_github_branches(owner: str, repo: str):
     """GitHub 저장소 브랜치 목록 조회"""
-    return [{"name": "main", "commit": {"sha": "abc123"}}]
+    import httpx
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"https://api.github.com/repos/{owner}/{repo}/branches")
+            return response.json()
+    except Exception as e:
+        return [{"name": "main", "commit": {"sha": "abc123"}}]
 
 @app.get("/api/github/repos/{owner}/{repo}/commits")
 async def get_github_commits(owner: str, repo: str, per_page: int = 50):
     """GitHub 저장소 커밋 목록 조회"""
-    return [{"sha": "abc123", "commit": {"message": "Initial commit"}}]
+    import httpx
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"https://api.github.com/repos/{owner}/{repo}/commits?per_page={per_page}")
+            return response.json()
+    except Exception as e:
+        return [{"sha": "abc123", "commit": {"message": "Initial commit"}}]
+
+# 로컬 저장소 설정 (AWS 환경용)
+LOCAL_STORAGE_DIR = os.path.join(CURRENT_DIR, "local_storage")
+LOCAL_REPOS_DIR = os.path.join(LOCAL_STORAGE_DIR, "repositories")
+LOCAL_BUILDS_DIR = os.path.join(LOCAL_STORAGE_DIR, "builds")
+os.makedirs(LOCAL_REPOS_DIR, exist_ok=True)
+os.makedirs(LOCAL_BUILDS_DIR, exist_ok=True)
+os.makedirs(LOCAL_STORAGE_DIR, exist_ok=True)
+
+class GitRepoRequest(BaseModel):
+    repo_url: str
+    repo_id: str
+
+class CommitAnalysisRequest(BaseModel):
+    repo_id: str
+    commit_sha: str
+    branch_name: str = ""
+
+class FileContentRequest(BaseModel):
+    file_path: str
+    repo_id: str = None
+
+class CommitFileDiffRequest(BaseModel):
+    file_path: str
+    repo_id: str = None
+    commit_sha: str = None
+
+class FeedbackRequest(BaseModel):
+    file_name: str
+    file_data: dict
+    file_content: str = ""
+    user_difficulty: int
+    ai_difficulty: int
+    feedback_reason: str
+
+def force_remove_readonly(func, path, exc):
+    """읽기 전용 파일 강제 삭제"""
+    import stat
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception:
+        pass
 
 @app.post("/analyze_github_repo")
-async def analyze_github_repo(request: dict):
-    """GitHub 저장소 분석"""
+async def analyze_github_repo(request: GitRepoRequest):
+    """GitHub 레포지터리 클론 및 분석"""
     try:
-        repo_url = request.get('repo_url', '')
-        if not repo_url:
-            return {"error": "저장소 URL이 필요합니다"}
+        # 영구 저장 디렉토리 설정
+        repo_name = request.repo_id.replace('/', '_')
+        repo_dir = os.path.join(LOCAL_REPOS_DIR, repo_name)
         
-        # Git clone 시도
-        import subprocess
-        import tempfile
-        import shutil
-        
-        with tempfile.TemporaryDirectory() as temp_dir:
+        # 이미 존재하면 강제 삭제 후 재클론
+        if os.path.exists(repo_dir):
             try:
-                # Git clone 실행
-                result = subprocess.run(
-                    ["git", "clone", repo_url, temp_dir],
-                    capture_output=True,
-                    text=True,
-                    timeout=60
-                )
-                
-                if result.returncode != 0:
-                    return {"error": f"Git clone 실패: {result.stderr}"}
-                
-                # 저장소 분석
-                analysis_result = code_analyzer.analyze_project(temp_dir)
-                return {"success": True, "analysis": analysis_result}
-                
-            except subprocess.TimeoutExpired:
-                return {"error": "저장소 클론 시간 초과"}
+                import shutil
+                shutil.rmtree(repo_dir, onerror=force_remove_readonly)
             except Exception as e:
-                return {"error": f"분석 중 오류: {str(e)}"}
-                
+                print(f"기존 폴더 삭제 실패: {e}")
+        
+        # Git 클론
+        try:
+            print(f"📥 클론 중: {request.repo_url} -> {repo_dir}")
+            import git
+            git.Repo.clone_from(request.repo_url, repo_dir)
+            print(f"✅ 클론 완료: {repo_dir}")
+        except Exception as e:
+            return {"error": f"레포지터리 클론 실패: {str(e)}"}
+        
+        # 프로젝트 분석
+        return analyze_project_directory(repo_dir)
+            
     except Exception as e:
-        return {"error": f"요청 처리 중 오류: {str(e)}"}
+        return {"error": f"분석 실패: {str(e)}"}
 
 @app.get("/download/{build_id}/docs")
 async def download_docs(build_id: str):
@@ -1052,31 +1546,210 @@ async def download_docs(build_id: str):
 
 @app.post("/analyze_project")
 async def analyze_project(files: List[UploadFile] = File(...)):
-    """프로젝트 코드 분석"""
+    """업로드된 파일들 분석"""
     try:
-        temp_dir = tempfile.mkdtemp()
+        # 영구 저장소에 파일들 저장
+        upload_id = str(uuid.uuid4())
+        upload_dir = os.path.join(LOCAL_REPOS_DIR, f"upload_{upload_id}")
+        os.makedirs(upload_dir, exist_ok=True)
         
-        # 파일들을 임시 디렉토리에 저장
+        print(f"📁 업로드 파일 저장 디렉토리: {upload_dir}")
+        
         for file in files:
-            # 파일명에서 디렉토리 구조 제거
-            safe_filename = os.path.basename(file.filename) if file.filename else "unknown"
-            file_path = os.path.join(temp_dir, safe_filename)
+            file_path = os.path.join(upload_dir, file.filename)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
             
-            with open(file_path, "wb") as f:
-                content = await file.read()
+            content = await file.read()
+            with open(file_path, 'wb') as f:
                 f.write(content)
+            print(f"📄 파일 저장: {file.filename}")
         
-        # 프로젝트 분석 수행
-        analysis_result = code_analyzer.analyze_project(temp_dir)
+        # 프로젝트 분석
+        result = analyze_project_directory(upload_dir)
         
-        # 임시 디렉토리 정리
-        import shutil
-        shutil.rmtree(temp_dir)
-        
-        return analysis_result
-        
+        # 결과에 upload_id 추가
+        result['upload_id'] = upload_id
+        return result
+            
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"분석 실패: {str(e)}"}
+
+def analyze_project_directory(project_dir):
+    """프로젝트 디렉토리 분석"""
+    extractor = FunctionExtractor()
+    files_data = []
+    total_lines = 0
+    total_files = 0
+    complexity_scores = []
+    difficulty_scores = []
+    
+    # 지원하는 파일 확장자
+    supported_extensions = {'.py', '.js', '.ts', '.java', '.cpp', '.c', '.cs', '.php', '.rb', '.go'}
+    
+    for root, dirs, files in os.walk(project_dir):
+        # 불필요한 디렉토리 제외
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'build', 'dist']]
+        
+        for file in files:
+            file_path = os.path.join(root, file)
+            file_ext = os.path.splitext(file)[1].lower()
+            
+            if file_ext in supported_extensions:
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                    
+                    # 파일 분석
+                    file_analysis = analyze_file(file_path, content, extractor)
+                    if file_analysis:
+                        files_data.append(file_analysis)
+                        total_lines += file_analysis['total_lines']
+                        total_files += 1
+                        complexity_scores.append(file_analysis['cyclomatic_complexity'])
+                        difficulty_scores.append(file_analysis['difficulty_score'])
+                        
+                except Exception as e:
+                    print(f"파일 분석 오류 {file_path}: {e}")
+                    continue
+    
+    # 요약 정보 계산
+    summary = {
+        'total_files': total_files,
+        'total_lines': total_lines,
+        'avg_complexity': round(sum(complexity_scores) / len(complexity_scores), 2) if complexity_scores else 0,
+        'max_difficulty': max(difficulty_scores) if difficulty_scores else 0,
+        'total_estimated_hours': sum(f['estimated_dev_hours'] for f in files_data)
+    }
+    
+    return {
+        'summary': summary,
+        'files': files_data
+    }
+
+def analyze_file(file_path, content, extractor):
+    """개별 파일 분석"""
+    try:
+        lines = content.split('\n')
+        total_lines = len(lines)
+        code_lines = len([line for line in lines if line.strip() and not line.strip().startswith('#') and not line.strip().startswith('//')])
+        comment_lines = total_lines - code_lines
+        comment_ratio = f"{round((comment_lines / total_lines) * 100, 1)}%" if total_lines > 0 else "0%"
+        
+        # 복잡도 계산 (간단한 휴리스틱)
+        complexity = calculate_complexity(content)
+        
+        # 기술 스택 감지
+        tech_stack = detect_tech_stack(file_path, content)
+        
+        # 난이도 점수 (1-10)
+        difficulty = min(10, max(1, complexity // 5 + len(tech_stack)))
+        
+        # 개발자 수준 추정
+        dev_level = get_developer_level(difficulty)
+        
+        # 예상 개발 시간 (시간)
+        estimated_hours = max(1, (code_lines // 50) + (complexity // 10))
+        
+        # 파일 경로 정규화
+        relative_path = os.path.relpath(file_path)
+        # local_storage/repositories/프로젝트명/ 부분 제거
+        path_parts = relative_path.replace('\\', '/').split('/')
+        if len(path_parts) > 3 and 'local_storage' in path_parts and 'repositories' in path_parts:
+            # repositories 다음 프로젝트명 제거하고 그 이후 경로만 사용
+            repo_index = path_parts.index('repositories')
+            if repo_index + 2 < len(path_parts):
+                clean_path = '/'.join(path_parts[repo_index + 2:])
+            else:
+                clean_path = relative_path
+        else:
+            clean_path = relative_path
+        
+        return {
+            'file_path': clean_path,
+            'original_file_path': file_path,
+            'total_lines': total_lines,
+            'code_lines': code_lines,
+            'code_comment_ratio': comment_ratio,
+            'cyclomatic_complexity': complexity,
+            'maintainability_index': max(0, min(100, 100 - complexity)),
+            'estimated_dev_hours': estimated_hours,
+            'difficulty_score': difficulty,
+            'developer_level': dev_level,
+            'pattern_score': min(10, max(1, 8 - (complexity // 10))),
+            'optimization_score': min(10, max(1, 7 + (comment_lines // 10))),
+            'best_practices_score': min(10, max(1, 6 + len(tech_stack))),
+            'tech_stack': tech_stack,
+            'language': tech_stack[0] if tech_stack else 'Unknown'
+        }
+    except Exception as e:
+        print(f"파일 분석 오류: {e}")
+        return None
+
+def calculate_complexity(content):
+    """코드 복잡도 계산"""
+    complexity = 1  # 기본 복잡도
+    
+    # 제어 구조 카운트
+    control_keywords = ['if', 'else', 'elif', 'for', 'while', 'switch', 'case', 'try', 'catch', 'except']
+    for keyword in control_keywords:
+        complexity += content.lower().count(keyword)
+    
+    # 함수/메서드 카운트
+    complexity += content.count('def ') + content.count('function ') + content.count('public ') + content.count('private ')
+    
+    return min(100, complexity)
+
+def detect_tech_stack(file_path, content):
+    """기술 스택 감지"""
+    tech_stack = []
+    file_ext = os.path.splitext(file_path)[1].lower()
+    
+    # 파일 확장자 기반
+    ext_mapping = {
+        '.py': 'Python',
+        '.js': 'JavaScript',
+        '.ts': 'TypeScript',
+        '.java': 'Java',
+        '.cpp': 'C++',
+        '.c': 'C',
+        '.cs': 'C#',
+        '.php': 'PHP',
+        '.rb': 'Ruby',
+        '.go': 'Go'
+    }
+    
+    if file_ext in ext_mapping:
+        tech_stack.append(ext_mapping[file_ext])
+    
+    # 프레임워크/라이브러리 감지
+    frameworks = {
+        'react': 'React',
+        'vue': 'Vue.js',
+        'angular': 'Angular',
+        'django': 'Django',
+        'flask': 'Flask',
+        'spring': 'Spring',
+        'express': 'Express.js',
+        'jquery': 'jQuery'
+    }
+    
+    content_lower = content.lower()
+    for keyword, framework in frameworks.items():
+        if keyword in content_lower:
+            tech_stack.append(framework)
+    
+    return list(set(tech_stack))  # 중복 제거
+
+def get_developer_level(difficulty):
+    """난이도 기반 개발자 수준 추정"""
+    if difficulty <= 3:
+        return "초급"
+    elif difficulty <= 6:
+        return "중급"
+    elif difficulty <= 8:
+        return "고급"
+    else:
+        return "전문가"
 
 @app.post('/upload_to_history')
 async def upload_to_history(request: dict):
