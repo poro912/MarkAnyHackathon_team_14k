@@ -253,38 +253,34 @@ Use the extract_utilities tool to return ONLY useful utility functions.
             print("❌ Bedrock을 사용할 수 없습니다. 원본 함수 반환")
             return raw_functions
         
+        # DLL 유틸리티 함수 추출 특화 프롬프트
+        func_list = "\n".join([f"- {func['name']}: {func.get('signature', 'N/A')}" for func in raw_functions[:8]])
         refactoring_prompt = f"""
-다음 함수들을 분석하여 재사용 가능한 공통 유틸리티로 변환해주세요.
+다음 함수들 중 DLL로 만들 가치가 있는 유틸리티 함수만 선별하여 변환하세요.
 
-**리팩토링 기준:**
-1. **재사용성 판단** - 다른 프로젝트에서도 쓸 수 있는 함수만 선별
-2. **종속성 제거** - 구조체, 전역변수, 특정 라이브러리 의존성 제거
-3. **하드코딩 제거** - 내부 상수나 문자열을 매개변수로 변환
-4. **범용화** - 특정 도메인에 종속되지 않게 일반화
-5. **시그니처 개선** - 더 범용적이고 사용하기 쉬운 매개변수로 변경
+목표: 프로젝트 의존성을 제거하고 다른 곳에서도 유용하게 쓸 수 있는 범용 함수로 변환
 
-**CRITICAL REQUIREMENTS:**
-- 함수 시그니처를 개선하여 더 재사용 가능하게 만드세요
-- header_declaration은 개선된 시그니처로 정확히 작성하세요
-- 함수 코드에는 완전한 함수 선언부를 포함하세요
-- required_headers에 함수가 사용하는 모든 C++ 헤더를 나열하세요 (예: ["<chrono>", "<cmath>", "<string>"])
+선별 기준:
+1. DLL로 만들 가치가 있는 함수 (문자열 처리, 파일 처리, 수학 계산, 시간 처리 등)
+2. 프로젝트 특화 의존성을 제거할 수 있는 함수
+3. 다른 프로젝트에서도 재사용 가능한 함수
 
-**제외할 함수:**
-- 특정 비즈니스 로직에 종속된 함수
-- UI/GUI 관련 함수
-- 특정 하드웨어나 시스템에 종속된 함수
-- 너무 간단한 함수 (단순 getter/setter)
+DLL 빌드 요구사항:
+- template 함수는 완전히 제거하거나 구체적인 타입으로 일반화
+- 헤더에만 필요한 소스는 제거
+- 모든 함수는 .cpp 파일에서 빌드 가능해야 함
 
-**원본 함수들:**
-{json.dumps(raw_functions, ensure_ascii=False, indent=2)}
+제외 대상:
+- template 함수 (일반화 불가능한 경우)
+- main, WinMain, DllMain 등 엔트리 포인트
+- 특정 프로젝트에만 종속된 함수
+- 제거할 수 없는 복잡한 의존성이 있는 함수
 
-**전체 소스 코드 (참고용):**
-```{file_extension}
-{full_code}
-```
+함수들:
+{func_list}
 
-각 함수에 대해 재사용 가능성을 판단하고, 시그니처를 개선하여 더 범용적으로 만든 후 반환해주세요.
-required_headers 필드에는 함수가 사용하는 모든 헤더 파일을 정확히 나열해주세요.
+DLL 빌드 가능한 함수만 JSON 배열로 응답:
+[{{"name": "함수명", "description": "함수 기능", "code": "DLL 빌드 가능한 완전한 함수 코드", "header_declaration": "LIBRARY_API 반환타입 함수명(매개변수);"}}]
 """
         
         max_retries = 3
@@ -301,7 +297,7 @@ required_headers 필드에는 함수가 사용하는 모든 헤더 파일을 정
                     await asyncio.sleep(base_delay)  # 첫 시도는 기본 대기
                 
                 response = self.bedrock.converse(
-                    modelId=BEDROCK_MODEL_ID,
+                    modelId="anthropic.claude-3-haiku-20240307-v1:0",  # Haiku 모델로 변경
                     messages=[{
                         "role": "user",
                         "content": [{"text": refactoring_prompt}]

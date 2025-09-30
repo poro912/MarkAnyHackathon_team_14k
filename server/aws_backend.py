@@ -188,7 +188,8 @@ async def save_extraction(function_data: dict):
 
 @app.post("/analyze_json")
 async def analyze_code_json(request: AnalyzeRequest):
-    """JSON 형식으로 파일 내용을 받아 분석"""
+    """JSON 형식으로 파일 내용을 받아 함수 단위로 분석"""
+    extractor = FunctionExtractor()
     analyzer = CodeAnalyzer()
     new_utilities = []
     
@@ -196,53 +197,80 @@ async def analyze_code_json(request: AnalyzeRequest):
         try:
             print(f"파일 처리 시작: {file_data.name}")
             
-            # 임시 파일 생성하여 분석
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix=f'.{file_data.type}', delete=False) as temp_file:
-                temp_file.write(file_data.content)
-                temp_file_path = temp_file.name
+            # 함수 단위로 추출
+            functions = extractor.extract_functions(file_data.content)
             
-            try:
-                # 파일 분석
-                analysis_result = analyzer.analyze_file(temp_file_path)
-                
-                # 유틸리티 형식으로 변환
-                utility = {
-                    'name': file_data.name.replace('.cpp', '').replace('.c', ''),
-                    'description': analysis_result.get('ai_analysis', {}).get('description', '분석된 코드 파일'),
-                    'code': file_data.content,
-                    'file': file_data.name,
-                    'path': file_data.path,
-                    'type': 'function',
-                    'reusability_score': analysis_result.get('reusability_score', 5),
-                    'complexity_score': analysis_result.get('complexity_score', 5),
-                    'line': 1
-                }
-                new_utilities.append(utility)
-                
-            finally:
-                # 임시 파일 삭제
-                os.unlink(temp_file_path)
+            for func in functions:
+                try:
+                    # 임시 파일 생성하여 AI 분석
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(mode='w', suffix=f'.{file_data.type}', delete=False) as temp_file:
+                        temp_file.write(func['code'])
+                        temp_file_path = temp_file.name
+                    
+                    try:
+                        # AI 분석
+                        analysis_result = analyzer.analyze_file(temp_file_path)
+                        ai_analysis = analysis_result.get('ai_analysis', {})
+                        
+                        # 유틸리티 형식으로 변환
+                        utility = {
+                            'name': func['name'],
+                            'description': ai_analysis.get('description', f"{func['name']} 함수"),
+                            'code': func['code'],
+                            'file': file_data.name,
+                            'path': file_data.path,
+                            'type': 'function',
+                            'line': func.get('line', 1),
+                            'return_type': func.get('return_type', 'void'),
+                            'parameters': func.get('parameters', ''),
+                            'reusability_score': analysis_result.get('reusability_score', 5),
+                            'complexity_score': analysis_result.get('complexity_score', 5)
+                        }
+                        new_utilities.append(utility)
+                        
+                    finally:
+                        # 임시 파일 삭제
+                        os.unlink(temp_file_path)
+                        
+                except Exception as e:
+                    print(f"함수 분석 오류 ({func['name']}): {e}")
+                    # AI 분석 실패시 기본 정보로 추가
+                    utility = {
+                        'name': func['name'],
+                        'description': f"{func['name']} 함수",
+                        'code': func['code'],
+                        'file': file_data.name,
+                        'path': file_data.path,
+                        'type': 'function',
+                        'line': func.get('line', 1),
+                        'return_type': func.get('return_type', 'void'),
+                        'parameters': func.get('parameters', ''),
+                        'reusability_score': 5,
+                        'complexity_score': 5
+                    }
+                    new_utilities.append(utility)
                 
         except Exception as e:
             print(f"파일 처리 오류 ({file_data.name}): {e}")
             continue
     
-    print(f"총 {len(new_utilities)}개 유틸리티 추출됨")
+    print(f"총 {len(new_utilities)}개 함수 추출됨")
     return {"utilities": new_utilities}
 
 @app.post("/analyze")
 async def analyze_code(files: List[UploadFile] = File(...)):
     extractor = FunctionExtractor()
-    new_utilities = []
+    all_raw_functions = []
+    file_info_map = {}
     
-    for file in files:
+    # 1단계: 모든 파일에서 함수 추출
+    for file_index, file in enumerate(files):
         try:
-            print(f"파일 처리 시작: {file.filename}")
+            print(f"파일 처리 시작 ({file_index+1}/{len(files)}): {file.filename}")
             
             # 파일 읽기
             content = await file.read()
-            print(f"파일 크기: {len(content)} bytes")
             
             # 텍스트 디코딩
             try:
@@ -253,36 +281,46 @@ async def analyze_code(files: List[UploadFile] = File(...)):
                 except UnicodeDecodeError:
                     text = content.decode('latin-1')
             
-            print(f"디코딩된 텍스트 길이: {len(text)}")
-            
             # 파일 확장자 확인
             file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'txt'
-            print(f"파일 확장자: .{file_extension}")
             
-            # 1단계: 수동 함수 추출 (정확한 시그니처)
-            print(f"1단계 - 함수 추출: {file.filename}")
+            # 함수 추출
             raw_functions = extractor.extract_functions(text)
-            print(f"추출된 원본 함수: {len(raw_functions)}개")
+            print(f"추출된 함수: {len(raw_functions)}개")
             
-            # 2단계: AI 리팩토링 (재사용성 향상)
-            if agent_wrapper and raw_functions:
-                print(f"2단계 - AI 리팩토링: {file.filename}")
-                utilities = await agent_wrapper.refactor_for_reusability(raw_functions, text, file_extension)
-                print(f"리팩토링된 함수: {len(utilities)}개")
-            else:
-                utilities = raw_functions
-                print("AI 없이 원본 함수 사용")
+            # 파일 정보 저장
+            for func in raw_functions:
+                func['source_file'] = file.filename
+                func['file_extension'] = file_extension
+                func['file'] = file.filename
+                func['type'] = 'function'
+                func['line'] = func.get('line', 1)
+                func['path'] = file.filename
+                
+                # 시그니처 생성
+                if 'signature' not in func and 'name' in func:
+                    return_type = func.get('return_type', 'void')
+                    params = func.get('parameters', '')
+                    func['signature'] = f"{return_type} {func['name']}({params})"
             
-            # 파일 정보 추가
-            for util in utilities:
-                util['source_file'] = file.filename
-                util['file_extension'] = file_extension
-            
-            new_utilities.extend(utilities)
+            all_raw_functions.extend(raw_functions)
             
         except Exception as e:
             print(f"파일 처리 오류 ({file.filename}): {e}")
             continue
+    
+    print(f"전체 추출된 함수: {len(all_raw_functions)}개")
+    
+    # 2단계: 모든 함수를 한 번에 AI 리팩토링
+    if agent_wrapper and all_raw_functions:
+        print("AI 리팩토링 시작 (모든 함수 일괄 처리)")
+        utilities = await agent_wrapper.refactor_for_reusability(all_raw_functions, "", "cpp")
+        print(f"리팩토링된 함수: {len(utilities)}개")
+    else:
+        utilities = all_raw_functions
+        print("AI 없이 원본 함수 사용")
+    
+    new_utilities = utilities
     
     # 기존 분석 결과와 합치기
     try:
