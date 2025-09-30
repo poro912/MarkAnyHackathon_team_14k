@@ -10,6 +10,15 @@ from typing import List
 from pydantic import BaseModel
 from decimal import Decimal
 from function_extractor import FunctionExtractor
+
+class FileData(BaseModel):
+    name: str
+    content: str
+    type: str
+    path: str = ""
+
+class AnalyzeRequest(BaseModel):
+    files: List[FileData]
 from agents.agent_wrapper import AgentWrapper
 from code_analyzer import CodeAnalyzer
 import git
@@ -176,6 +185,51 @@ async def save_extraction(function_data: dict):
     except Exception as e:
         print(f"추출 히스토리 저장 오류: {e}")
         return {"success": False, "error": str(e)}
+
+@app.post("/analyze_json")
+async def analyze_code_json(request: AnalyzeRequest):
+    """JSON 형식으로 파일 내용을 받아 분석"""
+    analyzer = CodeAnalyzer()
+    new_utilities = []
+    
+    for file_data in request.files:
+        try:
+            print(f"파일 처리 시작: {file_data.name}")
+            
+            # 임시 파일 생성하여 분석
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix=f'.{file_data.type}', delete=False) as temp_file:
+                temp_file.write(file_data.content)
+                temp_file_path = temp_file.name
+            
+            try:
+                # 파일 분석
+                analysis_result = analyzer.analyze_file(temp_file_path)
+                
+                # 유틸리티 형식으로 변환
+                utility = {
+                    'name': file_data.name.replace('.cpp', '').replace('.c', ''),
+                    'description': analysis_result.get('ai_analysis', {}).get('description', '분석된 코드 파일'),
+                    'code': file_data.content,
+                    'file': file_data.name,
+                    'path': file_data.path,
+                    'type': 'function',
+                    'reusability_score': analysis_result.get('reusability_score', 5),
+                    'complexity_score': analysis_result.get('complexity_score', 5),
+                    'line': 1
+                }
+                new_utilities.append(utility)
+                
+            finally:
+                # 임시 파일 삭제
+                os.unlink(temp_file_path)
+                
+        except Exception as e:
+            print(f"파일 처리 오류 ({file_data.name}): {e}")
+            continue
+    
+    print(f"총 {len(new_utilities)}개 유틸리티 추출됨")
+    return {"utilities": new_utilities}
 
 @app.post("/analyze")
 async def analyze_code(files: List[UploadFile] = File(...)):
@@ -1786,10 +1840,14 @@ async def upload_to_history(request: dict):
         table = dynamodb.Table(DYNAMODB_TABLE_NAME)
         
         # DynamoDB에 히스토리 저장
+        # 한국 시간으로 변환
+        from datetime import datetime, timezone, timedelta
+        kst = timezone(timedelta(hours=9))
+        
         history_item = {
             'build_id': build_id,  # Primary key
             'id': build_id,        # Alternative key for compatibility
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(kst).isoformat(),
             'comment': comment,
             'utilities': selected_utilities,
             'utility_count': len(selected_utilities)

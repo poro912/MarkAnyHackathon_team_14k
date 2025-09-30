@@ -103,7 +103,7 @@
             background: #007bff;
             color: white;
             border: none;
-            border-radius: 4px; min-width: 70px; white-space: nowrap;
+            border-radius: 4px; 
             cursor: pointer;
             font-size: 16px;
             margin: 0 10px;
@@ -137,7 +137,7 @@
         .utility-role {
             background: #f8f9fa;
             padding: 15px;
-            border-radius: 4px; min-width: 70px; white-space: nowrap;
+            border-radius: 4px; 
             margin-bottom: 15px;
             font-style: italic;
             color: #555;
@@ -145,7 +145,7 @@
         .utility-source {
             position: relative;
             background: #f8f8f8;
-            border-radius: 4px; min-width: 70px; white-space: nowrap;
+            border-radius: 4px; 
             padding: 15px;
         }
         .copy-btn {
@@ -174,7 +174,7 @@
             background: #28a745;
             color: white;
             border: none;
-            border-radius: 4px; min-width: 70px; white-space: nowrap;
+            border-radius: 4px; 
             cursor: pointer;
             font-size: 16px;
             font-weight: bold;
@@ -185,16 +185,22 @@
             padding: 20px;
             background: #d4edda;
             border: 1px solid #c3e6cb;
-            border-radius: 4px; min-width: 70px; white-space: nowrap;
+            border-radius: 4px; 
         }
         .download-btn {
-            padding: 8px 16px;
+            padding: 12px 24px;
             background: #007bff;
             color: white;
             border: none;
-            border-radius: 4px; min-width: 70px; white-space: nowrap;
+            border-radius: 4px; 
             cursor: pointer;
             margin: 0 5px;
+            min-width: 160px;
+            height: 44px;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
         .progress-section {
             display: none;
@@ -213,6 +219,24 @@
             width: 0%;
             transition: width 0.3s ease;
         }
+        
+        .utility-code pre {
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        
+        .utility-code code {
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+        }
     </style>
 </head>
 <body>
@@ -230,7 +254,7 @@
                 <input type="file" id="fileInput" multiple accept=".cs,.cpp,.c,.h,.py" style="display: none;">
                 <input type="file" id="folderInput" webkitdirectory style="display: none;">
                 <button class="upload-btn" onclick="document.getElementById('fileInput').click()">파일 선택</button>
-                <button class="folder-btn" onclick="showDirectCodeInput()">코드 직접입력</button>
+                <button class="folder-btn" onclick="showProjectSelection()">프로젝트 선택</button>
             </div>
 
             <div id="utilitiesSection" style="display: none;">
@@ -280,9 +304,11 @@
                 <div class="build-result" id="buildResult">
                     <h4>빌드 완료!</h4>
                     <p id="buildResultMessage">라이브러리 파일과 사용법 문서가 준비되었습니다.</p>
-                    <button class="download-btn" id="downloadLibBtn" onclick="downloadLibrary()">라이브러리 다운로드</button>
-                    <button class="download-btn" onclick="downloadHeader()" style="background: #17a2b8;">헤더 다운로드</button>
-                    <button class="download-btn" onclick="generateDocs()" id="docsBtn">가이드 문서</button>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin: 15px 0;">
+                        <button class="download-btn" id="downloadLibBtn" onclick="downloadLibrary()">라이브러리 다운로드</button>
+                        <button class="download-btn" onclick="downloadHeader()" style="background: #17a2b8;">헤더 다운로드</button>
+                        <button class="download-btn" onclick="generateDocs()" id="docsBtn">가이드 문서</button>
+                    </div>
                     <div id="docsProgress" style="display: none; margin-top: 10px;">
                         <div style="background: #f0f0f0; border-radius: 10px; padding: 3px;">
                             <div id="docsProgressBar" style="background: #28a745; height: 20px; border-radius: 8px; width: 0%; transition: width 0.3s;"></div>
@@ -302,18 +328,18 @@
             <h3>추출 히스토리</h3>
             <div style="margin-bottom: 20px;">
                 <input type="text" id="searchInput" placeholder="함수명, 설명, 코드로 검색..." 
-                       style="width: 300px; padding: 8px; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; min-width: 70px; white-space: nowrap;">
-                <button onclick="searchFunctions()" style="padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 4px; min-width: 70px; white-space: nowrap;">검색</button>
-                <button onclick="loadExtractionHistory()" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; min-width: 70px; white-space: nowrap; margin-left: 10px;">새로고침</button>
+                       style="width: 300px; padding: 8px; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; ">
+                <button onclick="searchFunctions()" style="padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 4px; ">검색</button>
+                <button onclick="loadExtractionHistory()" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px;  margin-left: 10px;">새로고침</button>
                 <button id="useSelectedBtn" onclick="useSelectedFunctions()" disabled 
-                        style="padding: 8px 16px; background: #ffc107; color: black; border: none; border-radius: 4px; min-width: 70px; white-space: nowrap; margin-left: 10px;">선택된 함수 사용</button>
+                        style="padding: 8px 16px; background: #ffc107; color: black; border: none; border-radius: 4px;  margin-left: 10px;">선택된 함수 사용</button>
             </div>
             <div id="extractionHistoryList">히스토리를 불러오는 중...</div>
         </div>
 
         <div id="history" class="tab-content">
             <h3>빌드 히스토리</h3>
-            <button onclick="loadHistory()" style="margin-bottom: 20px; padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; min-width: 70px; white-space: nowrap;">새로고침</button>
+            <button onclick="loadHistory()" style="margin-bottom: 20px; padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; ">새로고침</button>
             <div id="historyList">히스토리를 불러오는 중...</div>
         </div>
     </div>
@@ -350,38 +376,76 @@
             processFiles(Array.from(e.target.files));
         });
 
-        function showDirectCodeInput() {
-            const uploadSection = document.getElementById('uploadSection');
-            uploadSection.innerHTML = `
-                <h3>코드 직접 입력</h3>
-                <textarea id="codeInput" placeholder="C++ 코드를 입력하세요..." 
-                          style="width: 100%; height: 300px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; min-width: 70px; white-space: nowrap; font-family: monospace;"></textarea>
-                <div style="margin-top: 10px;">
-                    <button onclick="analyzeDirectCode()" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; min-width: 70px; white-space: nowrap;">코드 분석</button>
-                    <button onclick="location.reload()" style="padding: 8px 16px; background: #6c757d; color: white; border: none; border-radius: 4px; min-width: 70px; white-space: nowrap; margin-left: 10px;">파일 업로드로 돌아가기</button>
-                </div>
-            `;
+        function showProjectSelection() {
+            // 숨겨진 폴더 입력 요소가 없으면 생성
+            if (!document.getElementById('hiddenProjectFolderInput')) {
+                const hiddenInput = document.createElement('input');
+                hiddenInput.type = 'file';
+                hiddenInput.id = 'hiddenProjectFolderInput';
+                hiddenInput.webkitdirectory = true;
+                hiddenInput.style.display = 'none';
+                document.body.appendChild(hiddenInput);
+                
+                hiddenInput.addEventListener('change', (e) => {
+                    const files = Array.from(e.target.files);
+                    const cppFiles = files.filter(file => file.name.endsWith('.cpp') || file.name.endsWith('.c') || file.name.endsWith('.h'));
+                    
+                    if (cppFiles.length > 0) {
+                        window.selectedCppFiles = cppFiles;
+                        analyzeProjectFolder();
+                    } else {
+                        alert('선택한 폴더에 C++ 파일이 없습니다.');
+                    }
+                });
+            }
+            
+            // 바로 파일 다이얼로그 열기
+            document.getElementById('hiddenProjectFolderInput').click();
         }
 
-        async function analyzeDirectCode() {
-            const codeInput = document.getElementById('codeInput');
-            if (!codeInput || !codeInput.value.trim()) {
-                alert('코드를 입력해주세요.');
+        async function analyzeProjectFolder() {
+            if (!window.selectedCppFiles || window.selectedCppFiles.length === 0) {
+                alert('선택된 C++ 파일이 없습니다.');
                 return;
             }
 
             try {
-                const response = await fetch('/analyze', {
+                const files = [];
+                
+                // 파일 내용 읽기
+                for (const file of window.selectedCppFiles) {
+                    try {
+                        const content = await readFileContent(file);
+                        files.push({
+                            name: file.name,
+                            content: content,
+                            type: getFileType(file.name),
+                            path: file.webkitRelativePath || file.name
+                        });
+                    } catch (error) {
+                        console.error(`파일 읽기 오류 (${file.name}):`, error);
+                    }
+                }
+
+                if (files.length === 0) {
+                    alert('읽을 수 있는 파일이 없습니다.');
+                    return;
+                }
+
+                console.log('전송할 파일 데이터:', files.map(f => ({name: f.name, type: f.type, contentLength: f.content.length})));
+
+                const response = await fetch('/analyze_json', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        files: [{
-                            name: 'direct_input.cpp',
-                            content: codeInput.value,
-                            type: 'cpp'
-                        }]
-                    })
+                    body: JSON.stringify({ files: files })
                 });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('서버 응답 오류:', response.status, errorText);
+                    alert(`분석 요청 실패 (${response.status}): ${errorText}`);
+                    return;
+                }
 
                 const result = await response.json();
                 if (result.utilities && result.utilities.length > 0) {
@@ -394,12 +458,29 @@
                     // 백그라운드에서 서버에도 저장
                     autoUploadToExtractionHistory(result.utilities);
                 } else {
-                    alert('추출할 수 있는 유틸리티 함수가 없습니다.');
+                    alert('추출된 유틸리티가 없습니다.');
                 }
             } catch (error) {
-                console.error('분석 오류:', error);
-                alert('코드 분석 중 오류가 발생했습니다.');
+                console.error('프로젝트 분석 오류:', error);
+                alert('프로젝트 분석 중 오류가 발생했습니다: ' + error.message);
             }
+        }
+
+        function readFileContent(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = reject;
+                reader.readAsText(file);
+            });
+        }
+
+        function getFileType(filename) {
+            const ext = filename.split('.').pop().toLowerCase();
+            if (ext === 'cpp' || ext === 'cc' || ext === 'cxx') return 'cpp';
+            if (ext === 'c') return 'c';
+            if (ext === 'h' || ext === 'hpp') return 'header';
+            return 'cpp';
         }
 
         async function processFiles(files) {
@@ -631,7 +712,7 @@
                                 <strong>소스 코드:</strong>
                                 <button class="copy-btn" onclick="copyToClipboard('source-${index}')">복사</button>
                             </div>
-                            <pre id="source-${index}" style="margin: 0; font-size: 12px; overflow-x: auto; background: #f8f9fa; padding: 15px; border-radius: 4px; min-width: 70px; white-space: nowrap;"><code>${escapeHtml(utility.code || '소스 코드 없음')}</code></pre>
+                            <pre id="source-${index}" style="margin: 0; font-size: 12px; overflow-x: auto; background: #f8f9fa; padding: 15px; border-radius: 4px; "><code>${escapeHtml(utility.code || '소스 코드 없음')}</code></pre>
                         </div>
                     </div>
                 `;
@@ -1023,15 +1104,15 @@
                         </div>
                         <div style="display: flex; gap: 5px; align-items: center;">
                             <button onclick="event.stopPropagation(); downloadDLLFromHistory('${item.build_id}')" 
-                                    style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; min-width: 70px; white-space: nowrap; font-size: 12px;">
+                                    style="padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 4px; font-size: 12px; min-width: 80px; height: 32px; display: inline-flex; align-items: center; justify-content: center;">
                                 DLL
                             </button>
                             <button onclick="event.stopPropagation(); downloadHeaderFromHistory('${item.build_id}')" 
-                                    style="padding: 6px 12px; background: #17a2b8; color: white; border: none; border-radius: 4px; min-width: 70px; white-space: nowrap; font-size: 12px;">
+                                    style="padding: 8px 16px; background: #17a2b8; color: white; border: none; border-radius: 4px; font-size: 12px; min-width: 80px; height: 32px; display: inline-flex; align-items: center; justify-content: center;">
                                 헤더
                             </button>
                             <button onclick="event.stopPropagation(); generateDocsFromHistory('${item.build_id}')" 
-                                    style="padding: 6px 12px; background: #ffc107; color: black; border: none; border-radius: 4px; min-width: 70px; white-space: nowrap; font-size: 12px;">
+                                    style="padding: 8px 16px; background: #ffc107; color: black; border: none; border-radius: 4px; font-size: 12px; min-width: 80px; height: 32px; display: inline-flex; align-items: center; justify-content: center;">
                                 문서
                             </button>
                             <span style="margin-left: 10px;">▼</span>
@@ -1055,13 +1136,13 @@
                 utilities.forEach((utility, utilIndex) => {
                     const utilDiv = document.createElement('div');
                     utilDiv.innerHTML = `
-                        <div style="margin: 10px 0; border: 1px solid #ddd; border-radius: 4px; min-width: 70px; white-space: nowrap; padding: 10px;">
+                        <div style="margin: 10px 0; border: 1px solid #ddd; border-radius: 4px;  padding: 10px;">
                             <div onclick="toggleHistoryUtilityCode(${index}, ${utilIndex})" style="cursor: pointer;">
                                 <strong>${utility.name || 'Unknown'}</strong> - ${utility.description || '설명 없음'}
                                 <span style="margin-left: 10px;">▼</span>
                             </div>
                             <div id="history-code-${index}-${utilIndex}" style="display: none; margin-top: 10px;">
-                                <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; min-width: 70px; white-space: nowrap; font-size: 12px; overflow-x: auto;"><code>${escapeHtml(utility.code || '// 코드 없음')}</code></pre>
+                                <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 12px; min-width: 80px; height: 32px; display: inline-flex; align-items: center; justify-content: center; overflow-x: auto;"><code>${escapeHtml(utility.code || '// 코드 없음')}</code></pre>
                             </div>
                         </div>
                     `;
@@ -1237,7 +1318,7 @@
                         <p style="color: #666; margin: 5px 0;"><strong>설명:</strong> ${func.description || '설명 없음'}</p>
                         <details style="margin-top: 10px;">
                             <summary style="cursor: pointer; font-weight: bold;">코드 보기</summary>
-                            <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; min-width: 70px; white-space: nowrap; overflow-x: auto; margin-top: 10px;"><code>${func.code || '// 코드 없음'}</code></pre>
+                            <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px;  overflow-x: auto; margin-top: 10px;"><code>${func.code || '// 코드 없음'}</code></pre>
                         </details>
                         <small style="color: #999;">빌드 ID: ${func.build_id || 'N/A'} | ${func.comment || '코멘트 없음'}</small>
                     </div>
@@ -1346,7 +1427,7 @@
                         </div>
                         <div class="utility-code">
                             <strong>코드:</strong>
-                            <pre><code>${escapeHtml(utility.code)}</code></pre>
+                            <pre><code style="white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(utility.code)}</code></pre>
                         </div>
                     </div>
                 `;
