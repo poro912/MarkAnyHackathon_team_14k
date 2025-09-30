@@ -1645,52 +1645,83 @@ async def analyze_project(files: List[UploadFile] = File(...)):
     except Exception as e:
         return {"error": f"분석 실패: {str(e)}"}
 
-def analyze_project_directory(project_dir):
-    """프로젝트 디렉토리 분석"""
-    extractor = FunctionExtractor()
-    files_data = []
-    total_lines = 0
-    total_files = 0
-    complexity_scores = []
-    difficulty_scores = []
+# def analyze_project_directory(project_dir):
+#     """프로젝트 디렉토리 분석"""
+#     extractor = FunctionExtractor()
+#     files_data = []
+#     total_lines = 0
+#     total_files = 0
+#     complexity_scores = []
+#     difficulty_scores = []
     
-    # 지원하는 파일 확장자
-    supported_extensions = {'.py', '.js', '.ts', '.java', '.cpp', '.c', '.cs', '.php', '.rb', '.go'}
+#     # 지원하는 파일 확장자
+#     supported_extensions = {'.py', '.js', '.ts', '.java', '.cpp', '.c', '.cs', '.php', '.rb', '.go'}
     
-    for root, dirs, files in os.walk(project_dir):
-        # 불필요한 디렉토리 제외
-        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'build', 'dist']]
+#     for root, dirs, files in os.walk(project_dir):
+#         # 불필요한 디렉토리 제외
+#         dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'build', 'dist']]
         
-        for file in files:
-            file_path = os.path.join(root, file)
-            file_ext = os.path.splitext(file)[1].lower()
+#         for file in files:
+#             file_path = os.path.join(root, file)
+#             file_ext = os.path.splitext(file)[1].lower()
             
-            if file_ext in supported_extensions:
-                try:
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()
+#             if file_ext in supported_extensions:
+#                 try:
+#                     with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+#                         content = f.read()
                     
-                    # 파일 분석
-                    file_analysis = analyze_file(file_path, content, extractor)
-                    if file_analysis:
-                        files_data.append(file_analysis)
-                        total_lines += file_analysis['total_lines']
-                        total_files += 1
-                        complexity_scores.append(file_analysis['cyclomatic_complexity'])
-                        difficulty_scores.append(file_analysis['difficulty_score'])
+#                     # 파일 분석
+#                     file_analysis = analyze_file(file_path, content, extractor)
+#                     if file_analysis:
+#                         files_data.append(file_analysis)
+#                         total_lines += file_analysis['total_lines']
+#                         total_files += 1
+#                         complexity_scores.append(file_analysis['cyclomatic_complexity'])
+#                         difficulty_scores.append(file_analysis['difficulty_score'])
                         
-                except Exception as e:
-                    print(f"파일 분석 오류 {file_path}: {e}")
-                    continue
+#                 except Exception as e:
+#                     print(f"파일 분석 오류 {file_path}: {e}")
+#                     continue
     
-    # 요약 정보 계산
-    summary = {
-        'total_files': total_files,
-        'total_lines': total_lines,
-        'avg_complexity': round(sum(complexity_scores) / len(complexity_scores), 2) if complexity_scores else 0,
-        'max_difficulty': max(difficulty_scores) if difficulty_scores else 0,
-        'total_estimated_hours': sum(f['estimated_dev_hours'] for f in files_data)
-    }
+#     # 요약 정보 계산
+#     summary = {
+#         'total_files': total_files,
+#         'total_lines': total_lines,
+#         'avg_complexity': round(sum(complexity_scores) / len(complexity_scores), 2) if complexity_scores else 0,
+#         'max_difficulty': max(difficulty_scores) if difficulty_scores else 0,
+#         'total_estimated_hours': sum(f['estimated_dev_hours'] for f in files_data)
+#     }
+    
+#     return {
+#         'summary': summary,
+#         'files': files_data
+#     }
+
+def analyze_project_directory(project_dir):
+    """프로젝트 디렉토리 분석 - CodeAnalyzer 사용"""
+    analyzer = CodeAnalyzer()
+    result = analyzer.analyze_project(project_dir)
+    
+    # CodeAnalyzer는 {'files': [...], 'summary': {...}} 형태로 반환
+    files_data = result.get('files', [])
+    existing_summary = result.get('summary', {})
+    
+    # 기존 요약 정보가 있으면 사용, 없으면 계산
+    if existing_summary:
+        summary = existing_summary
+    else:
+        total_files = len(files_data)
+        total_lines = sum(f.get('total_lines', 0) for f in files_data)
+        complexity_scores = [f.get('cyclomatic_complexity', 0) for f in files_data if f.get('cyclomatic_complexity')]
+        difficulty_scores = [f.get('difficulty_score', 0) for f in files_data if f.get('difficulty_score')]
+        
+        summary = {
+            'total_files': total_files,
+            'total_lines': total_lines,
+            'avg_complexity': round(sum(complexity_scores) / len(complexity_scores), 2) if complexity_scores else 0,
+            'max_difficulty': max(difficulty_scores) if difficulty_scores else 0,
+            'total_estimated_hours': sum(f.get('estimated_dev_hours', 0) for f in files_data)
+        }
     
     return {
         'summary': summary,
