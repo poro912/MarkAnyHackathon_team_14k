@@ -1592,35 +1592,186 @@ async def analyze_project(files: List[UploadFile] = File(...)):
         return {"error": f"분석 실패: {str(e)}"}
 
 def analyze_project_directory(project_dir):
-    """프로젝트 디렉토리 분석 - CodeAnalyzer 사용"""
-    analyzer = CodeAnalyzer()
-    result = analyzer.analyze_project(project_dir)
+    """프로젝트 디렉토리 분석"""
+    extractor = FunctionExtractor()
+    files_data = []
+    total_lines = 0
+    total_files = 0
+    complexity_scores = []
+    difficulty_scores = []
     
-    # CodeAnalyzer는 {'files': [...], 'summary': {...}} 형태로 반환
-    files_data = result.get('files', [])
-    existing_summary = result.get('summary', {})
+    # 지원하는 파일 확장자
+    supported_extensions = {'.py', '.js', '.ts', '.java', '.cpp', '.c', '.cs', '.php', '.rb', '.go'}
     
-    # 기존 요약 정보가 있으면 사용, 없으면 계산
-    if existing_summary:
-        summary = existing_summary
-    else:
-        total_files = len(files_data)
-        total_lines = sum(f.get('total_lines', 0) for f in files_data)
-        complexity_scores = [f.get('cyclomatic_complexity', 0) for f in files_data if f.get('cyclomatic_complexity')]
-        difficulty_scores = [f.get('difficulty_score', 0) for f in files_data if f.get('difficulty_score')]
+    for root, dirs, files in os.walk(project_dir):
+        # 불필요한 디렉토리 제외
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'build', 'dist']]
         
-        summary = {
-            'total_files': total_files,
-            'total_lines': total_lines,
-            'avg_complexity': round(sum(complexity_scores) / len(complexity_scores), 2) if complexity_scores else 0,
-            'max_difficulty': max(difficulty_scores) if difficulty_scores else 0,
-            'total_estimated_hours': sum(f.get('estimated_dev_hours', 0) for f in files_data)
-        }
+        for file in files:
+            file_path = os.path.join(root, file)
+            file_ext = os.path.splitext(file)[1].lower()
+            
+            if file_ext in supported_extensions:
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                    
+                    # 파일 분석
+                    file_analysis = analyze_file(file_path, content, extractor)
+                    if file_analysis:
+                        files_data.append(file_analysis)
+                        total_lines += file_analysis['total_lines']
+                        total_files += 1
+                        complexity_scores.append(file_analysis['cyclomatic_complexity'])
+                        difficulty_scores.append(file_analysis['difficulty_score'])
+                        
+                except Exception as e:
+                    print(f"파일 분석 오류 {file_path}: {e}")
+                    continue
+    
+    # 요약 정보 계산
+    summary = {
+        'total_files': total_files,
+        'total_lines': total_lines,
+        'avg_complexity': round(sum(complexity_scores) / len(complexity_scores), 2) if complexity_scores else 0,
+        'max_difficulty': max(difficulty_scores) if difficulty_scores else 0,
+        'total_estimated_hours': sum(f['estimated_dev_hours'] for f in files_data)
+    }
     
     return {
         'summary': summary,
         'files': files_data
     }
+
+def analyze_file(file_path, content, extractor):
+    """개별 파일 분석"""
+    try:
+        lines = content.split('\n')
+        total_lines = len(lines)
+        code_lines = len([line for line in lines if line.strip() and not line.strip().startswith('#') and not line.strip().startswith('//')])
+        comment_lines = total_lines - code_lines
+        comment_ratio = f"{round((comment_lines / total_lines) * 100, 1)}%" if total_lines > 0 else "0%"
+        
+        # 복잡도 계산 (간단한 휴리스틱)
+        complexity = calculate_complexity(content)
+        
+        # 기술 스택 감지
+        tech_stack = detect_tech_stack(file_path, content)
+        
+        # 난이도 점수 (1-10)
+        difficulty = min(10, max(1, complexity // 5 + len(tech_stack)))
+        
+        # 개발자 수준 추정
+        dev_level = get_developer_level(difficulty)
+        
+        # 예상 개발 시간 (시간)
+        estimated_hours = max(1, (code_lines // 50) + (complexity // 10))
+        
+        # 파일 경로 정규화
+        relative_path = os.path.relpath(file_path)
+        # local_storage/repositories/프로젝트명/ 부분 제거
+        path_parts = relative_path.replace('\\', '/').split('/')
+        if len(path_parts) > 3 and 'local_storage' in path_parts and 'repositories' in path_parts:
+            # repositories 다음 프로젝트명 제거하고 그 이후 경로만 사용
+            repo_index = path_parts.index('repositories')
+            if repo_index + 2 < len(path_parts):
+                clean_path = '/'.join(path_parts[repo_index + 2:])
+            else:
+                clean_path = relative_path
+        else:
+            clean_path = relative_path
+        
+        # 고유 ID 추가하여 중복 방지
+        file_id = f"{clean_path}_{hash(content)}_{datetime.now().timestamp()}"
+        
+        return {
+            'file_id': file_id,
+            'file_path': clean_path,
+            'original_file_path': file_path,
+            'total_lines': total_lines,
+            'code_lines': code_lines,
+            'code_comment_ratio': comment_ratio,
+            'cyclomatic_complexity': complexity,
+            'maintainability_index': max(0, min(100, 100 - complexity)),
+            'estimated_dev_hours': estimated_hours,
+            'difficulty_score': difficulty,
+            'developer_level': dev_level,
+            'pattern_score': min(10, max(1, 8 - (complexity // 10))),
+            'optimization_score': min(10, max(1, 7 + (comment_lines // 10))),
+            'best_practices_score': min(10, max(1, 6 + len(tech_stack))),
+            'tech_stack': tech_stack,
+            'language': tech_stack[0] if tech_stack else 'Unknown',
+            'tech_stack_identification': ', '.join(tech_stack) if tech_stack else 'Unknown'
+        }
+    except Exception as e:
+        print(f"파일 분석 오류: {e}")
+        return None
+
+def calculate_complexity(content):
+    """코드 복잡도 계산"""
+    complexity = 1  # 기본 복잡도
+    
+    # 제어 구조 카운트
+    control_keywords = ['if', 'else', 'elif', 'for', 'while', 'switch', 'case', 'try', 'catch', 'except']
+    for keyword in control_keywords:
+        complexity += content.lower().count(keyword)
+    
+    # 함수/메서드 카운트
+    complexity += content.count('def ') + content.count('function ') + content.count('public ') + content.count('private ')
+    
+    return min(100, complexity)
+
+def detect_tech_stack(file_path, content):
+    """기술 스택 감지"""
+    tech_stack = []
+    file_ext = os.path.splitext(file_path)[1].lower()
+    
+    # 파일 확장자 기반
+    ext_mapping = {
+        '.py': 'Python',
+        '.js': 'JavaScript',
+        '.ts': 'TypeScript',
+        '.java': 'Java',
+        '.cpp': 'C++',
+        '.c': 'C',
+        '.cs': 'C#',
+        '.php': 'PHP',
+        '.rb': 'Ruby',
+        '.go': 'Go'
+    }
+    
+    if file_ext in ext_mapping:
+        tech_stack.append(ext_mapping[file_ext])
+    
+    # 프레임워크/라이브러리 감지
+    frameworks = {
+        'react': 'React',
+        'vue': 'Vue.js',
+        'angular': 'Angular',
+        'django': 'Django',
+        'flask': 'Flask',
+        'spring': 'Spring',
+        'express': 'Express.js',
+        'jquery': 'jQuery'
+    }
+    
+    content_lower = content.lower()
+    for keyword, framework in frameworks.items():
+        if keyword in content_lower:
+            tech_stack.append(framework)
+    
+    return list(set(tech_stack))  # 중복 제거
+
+def get_developer_level(difficulty):
+    """난이도 기반 개발자 수준 추정"""
+    if difficulty <= 3:
+        return "초급"
+    elif difficulty <= 6:
+        return "중급"
+    elif difficulty <= 8:
+        return "고급"
+    else:
+        return "전문가"
 
 @app.post('/upload_to_history')
 async def upload_to_history(request: dict):

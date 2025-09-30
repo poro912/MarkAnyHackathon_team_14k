@@ -41,6 +41,26 @@
             margin-bottom: 30px;
         }
 
+        /* 모든 작은 버튼들 강제로 크기 증가 */
+        button {
+            min-height: 32px !important;
+            min-width: 80px !important;
+            padding: 8px 16px !important;
+            font-size: 13px !important;
+        }
+
+        /* 특별히 작은 버튼들 */
+        button[onclick*="generateDoc"],
+        button[onclick*="generateHeader"],
+        .action-btn,
+        .doc-btn {
+            min-height: 36px !important;
+            min-width: 100px !important;
+            padding: 10px 20px !important;
+            font-size: 14px !important;
+            font-weight: 500 !important;
+        }
+
         .tab-buttons {
             display: flex;
             background: #f8f9fa;
@@ -835,6 +855,100 @@
     </div>
 
     <script>
+        // 유틸리티 추출에서 가져온 작동하는 문서 생성 함수
+        async function generateDocsFromHistory(buildId) {
+            const button = event.target;
+            const buttonContainer = button.parentElement;
+            
+            // 기존 진행률 제거 (있다면)
+            const existingProgress = buttonContainer.querySelector('.doc-progress');
+            if (existingProgress) {
+                existingProgress.remove();
+            }
+            
+            // 버튼 비활성화
+            button.disabled = true;
+            button.textContent = '생성중...';
+            
+            // 진행률 게이지 생성 (버튼 밑에)
+            const progressHtml = `
+                <div class="doc-progress" style="margin-top: 5px; width: 100%;">
+                    <div style="background: #f0f0f0; border-radius: 10px; padding: 2px; margin: 5px 0;">
+                        <div id="docProgressBar-${buildId}" style="background: #007bff; height: 8px; border-radius: 8px; width: 0%; transition: width 0.3s;"></div>
+                    </div>
+                    <div id="docProgressText-${buildId}" style="font-size: 10px; color: #666; text-align: center;">AI가 문서를 생성하고 있습니다...</div>
+                </div>
+            `;
+            
+            buttonContainer.insertAdjacentHTML('beforeend', progressHtml);
+            
+            const progressBar = document.getElementById(`docProgressBar-${buildId}`);
+            const progressText = document.getElementById(`docProgressText-${buildId}`);
+            
+            try {
+                // 진행률 애니메이션
+                progressBar.style.width = '30%';
+                progressText.textContent = '함수 정보 분석 중...';
+                
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                progressBar.style.width = '60%';
+                progressText.textContent = 'AI 문서 생성 중...';
+                
+                const response = await fetch(`/generate_docs_fixed/${buildId}`);
+                const result = await response.json();
+                
+                progressBar.style.width = '90%';
+                progressText.textContent = '문서 업로드 중...';
+                
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                if (result.success) {
+                    progressBar.style.width = '100%';
+                    progressBar.style.background = '#28a745';
+                    progressText.textContent = '문서 생성 완료!';
+                    
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    
+                    // 문서 다운로드
+                    if (result.doc_url) {
+                        const link = document.createElement('a');
+                        link.href = result.doc_url;
+                        link.download = `${buildId}_docs.md`;
+                        link.target = '_blank';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    }
+                    
+                    // 진행률 제거
+                    setTimeout(() => {
+                        const progress = buttonContainer.querySelector('.doc-progress');
+                        if (progress) progress.remove();
+                    }, 2000);
+                    
+                } else {
+                    throw new Error(result.error || '문서 생성 실패');
+                }
+                
+            } catch (error) {
+                console.error('문서 생성 오류:', error);
+                progressBar.style.background = '#dc3545';
+                progressText.textContent = '문서 생성 실패';
+                
+                setTimeout(() => {
+                    const progress = buttonContainer.querySelector('.doc-progress');
+                    if (progress) progress.remove();
+                }, 3000);
+            } finally {
+                // 버튼 복원
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.textContent = '문서';
+                }, 3000);
+            }
+        }
+
         // Tab switching functionality
         function switchTab(tabName) {
             document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
